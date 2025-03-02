@@ -97,7 +97,6 @@ private:
     int current_offset = 0;
     int current_line = 0;
     int current_column = 0;
-    int current_column_line = 0;
     std::string filename{};
 
     Token create_token(TokenType type, const std::string &lexeme);

@@ -108,7 +108,6 @@ std::vector<Token> Lexer::tokenize()
             default:
                 std::cerr << "Unknow character: " << current_char << '\n';
                 exit(0);
-                break;
             }
             current_offset++;
             current_column++;
@@ -195,5 +194,3 @@ Loc Lexer::create_loc(const std::string &lexeme)
 {
     return Loc{current_line, lexeme, current_column, current_column + static_cast<int>(lexeme.length()), filename};
 }
-
-// Lexer::Lexer(const std::string &source, const std::string &filename = "repl") : source(source), filename(filename) {}

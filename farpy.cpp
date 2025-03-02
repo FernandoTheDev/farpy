@@ -20,7 +20,6 @@ int main(int argc, char *argv[])
         std::cerr << "Error: could not open file " << argv[1] << '\n';
         return 1;
     }
-
     std::string line{};
     std::string source{};
 
