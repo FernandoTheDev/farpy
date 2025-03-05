@@ -6,7 +6,6 @@
 
 enum TokenType
 {
-    KEYWORD,
     IDENTIFIER,
     NUMBER,
     STRING,
@@ -18,6 +17,8 @@ enum TokenType
     SLASH,
     PERCENT,
     EQUAL,
+    EQUAL_EQUAL,
+    BANG_EQUAL,
     NOT_EQUAL,
     LESS,
     LESS_EQUAL,
@@ -34,6 +35,10 @@ enum TokenType
     PERCENT_ASSIGN,
     INCREMENT,
     DECREMENT,
+    POWERING,
+
+    // Especials
+    BINARY,
 
     // Punctuation
     COMMA,
@@ -64,6 +69,10 @@ enum TokenType
     RETURN,
     TRUE,
     FALSE,
+    FN,
+    AS,
+    IMPORT,
+    FOREACH,
 
     // End of file
     END_OF_FILE
@@ -95,7 +104,7 @@ private:
     std::string source{};
     std::vector<Token> tokens{};
     int current_offset = 0;
-    int current_line = 0;
+    int current_line = 1;
     int current_column = 0;
     std::string filename{};
 
@@ -105,6 +114,10 @@ private:
     void lexing_number();
     void lexing_string();
     void lexing_identifier();
+    char peek() const;
+    char peekNext() const;
+    char advance();
+    bool match(char expected);
 };
 
 #endif
