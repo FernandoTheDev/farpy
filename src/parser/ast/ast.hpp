@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include <nlohmann/json.hpp>
-#include "lexer.hpp" // Supondo que "lexer.hpp" define o tipo Loc
+#include "../../lexer/lexer.hpp"// Supondo que "lexer.hpp" define o tipo Loc
 
 using json = nlohmann::json;
 
@@ -49,7 +49,7 @@ struct NumberNode : public ASTNode
             {"line", loc.line},
             {"start_column", loc.start_column},
             {"end_column", loc.end_column},
-            {"line_content", loc.line_content}};
+        };
         return j;
     }
 };
@@ -75,7 +75,7 @@ struct StringNode : public ASTNode
             {"line", loc.line},
             {"start_column", loc.start_column},
             {"end_column", loc.end_column},
-            {"line_content", loc.line_content}};
+            };
         return j;
     }
 };
@@ -101,7 +101,7 @@ struct IdentifierNode : public ASTNode
             {"line", loc.line},
             {"start_column", loc.start_column},
             {"end_column", loc.end_column},
-            {"line_content", loc.line_content}};
+            };
         return j;
     }
 };
@@ -109,10 +109,10 @@ struct IdentifierNode : public ASTNode
 struct BinaryOpNode : public ASTNode
 {
     std::string op;
-    std::unique_ptr<ASTNode> left;
-    std::unique_ptr<ASTNode> right;
+    std::shared_ptr<ASTNode> left;
+    std::shared_ptr<ASTNode> right;
 
-    BinaryOpNode(const std::string &op, std::unique_ptr<ASTNode> left, std::unique_ptr<ASTNode> right, Loc l)
+    BinaryOpNode(const std::string &op, std::shared_ptr<ASTNode> left, std::shared_ptr<ASTNode> right, Loc l)
         : op(op), left(std::move(left)), right(std::move(right))
     {
         kind = NodeType::Binary;
@@ -129,7 +129,7 @@ struct BinaryOpNode : public ASTNode
             {"line", loc.line},
             {"start_column", loc.start_column},
             {"end_column", loc.end_column},
-            {"line_content", loc.line_content}};
+        };
         // Conversão recursiva dos nós filhos
         j["left"] = left ? left->toJson() : json(nullptr);
         j["right"] = right ? right->toJson() : json(nullptr);

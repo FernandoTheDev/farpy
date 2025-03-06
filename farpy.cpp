@@ -7,8 +7,8 @@
 #include <typeinfo>
 #include <nlohmann/json.hpp>
 
-#include "src/lexer.hpp"
-#include "src/parser.hpp"
+#include "src/lexer/lexer.hpp"
+#include "src/parser/parser.hpp"
 
 bool build = false;
 std::string code{};
@@ -80,7 +80,6 @@ int main(int argc, char **argv)
         std::cout << "Line: " << token.loc.line
                   << ", Start Column: " << token.loc.start_column
                   << ", End Column: " << token.loc.end_column
-                  << ", Line Content: " << token.loc.line_content
                   << ", Token Type: " << token.type
                   << '\n';
     }

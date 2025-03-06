@@ -3,9 +3,11 @@
 #include <vector>
 #include <cctype>
 #include <unordered_map>
+#include <cstdint>
 
+#include "TokenType.hpp"
+#include "../error/error.hpp"
 #include "lexer.hpp"
-#include "error.hpp"
 
 char Lexer::peek() const
 {
@@ -200,7 +202,7 @@ std::vector<Token> Lexer::tokenize()
                 tokens.push_back(create_token(TokenType::RIGHT_BRACKET, std::string(1, advance())));
                 break;
             default:
-                Error::errorMessage("lexer", "Unknown character", create_loc(std::string(1, advance())));
+                Error::errorMessage("lexer", "Unknown character", create_loc(std::string(1, advance())), this->filename, this->source);
                 exit(-1);
             }
         }
@@ -229,6 +231,7 @@ void Lexer::lexing_string()
     }
     if (current_offset >= source.size())
     {
+        //TODO: imporve error
         std::cerr << "Erro: String not closed in line " << current_line << "\n";
         exit(1);
     }
@@ -277,5 +280,5 @@ Token Lexer::create_token(TokenType type, const std::string &lexeme)
 
 Loc Lexer::create_loc(const std::string &lexeme)
 {
-    return Loc{current_line, lexeme, current_column - static_cast<int>(lexeme.length()), current_column, filename};
+    return Loc{current_line, current_column - static_cast<int>(lexeme.length()), current_column};
 }
