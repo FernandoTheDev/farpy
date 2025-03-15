@@ -1,2 +1,1 @@
-1 - 1 + 2
-"Fernando"
+new x: i16 = 

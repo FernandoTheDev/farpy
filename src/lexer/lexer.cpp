@@ -231,7 +231,7 @@ void Lexer::lexing_string()
     }
     if (current_offset >= source.size())
     {
-        //TODO: imporve error
+        // TODO: imporve error
         std::cerr << "Erro: String not closed in line " << current_line << "\n";
         exit(1);
     }
@@ -259,6 +259,8 @@ void Lexer::lexing_identifier()
         {"continue", TokenType::CONTINUE},
         {"return", TokenType::RETURN},
         {"true", TokenType::TRUE},
+        {"new", TokenType::NEW},
+        {"mut", TokenType::MUT},
         {"false", TokenType::FALSE}};
 
     auto it = keywords.find(lexeme);

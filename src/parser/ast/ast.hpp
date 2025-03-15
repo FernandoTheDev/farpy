@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include <nlohmann/json.hpp>
-#include "../../lexer/lexer.hpp"// Supondo que "lexer.hpp" define o tipo Loc
+#include "../../lexer/lexer.hpp" // Supondo que "lexer.hpp" define o tipo Loc
 
 using json = nlohmann::json;
 
@@ -13,7 +13,8 @@ enum class NodeType
     Number,
     String,
     Identifier,
-    Binary,
+    BinaryOp,
+    VarDeclaration
 };
 
 struct ASTNode
@@ -75,7 +76,7 @@ struct StringNode : public ASTNode
             {"line", loc.line},
             {"start_column", loc.start_column},
             {"end_column", loc.end_column},
-            };
+        };
         return j;
     }
 };
@@ -101,7 +102,7 @@ struct IdentifierNode : public ASTNode
             {"line", loc.line},
             {"start_column", loc.start_column},
             {"end_column", loc.end_column},
-            };
+        };
         return j;
     }
 };
@@ -115,7 +116,7 @@ struct BinaryOpNode : public ASTNode
     BinaryOpNode(const std::string &op, std::shared_ptr<ASTNode> left, std::shared_ptr<ASTNode> right, Loc l)
         : op(op), left(std::move(left)), right(std::move(right))
     {
-        kind = NodeType::Binary;
+        kind = NodeType::BinaryOp;
         type = "binaryOp";
         loc = l;
     }
@@ -133,6 +134,36 @@ struct BinaryOpNode : public ASTNode
         // Conversão recursiva dos nós filhos
         j["left"] = left ? left->toJson() : json(nullptr);
         j["right"] = right ? right->toJson() : json(nullptr);
+        return j;
+    }
+};
+
+struct VarDeclarationNode : public ASTNode
+{
+    std::string identifier; // Adicionar campo para armazenar o nome da variável
+    std::shared_ptr<ASTNode> value;
+    bool mut;
+
+    VarDeclarationNode(const Token &id, std::shared_ptr<ASTNode> value, bool mut, Loc l)
+        : identifier(id.lexeme), value(value), mut(mut)
+    {
+        kind = NodeType::VarDeclaration;
+        type = "varDeclaration"; // Corrigir o tipo
+        loc = l;
+    }
+
+    json toJson() const override
+    {
+        json j;
+        j["kind"] = type;
+        j["identifier"] = identifier;
+        j["mutable"] = mut;
+        j["value"] = value ? value->toJson() : json(nullptr);
+        j["loc"] = {
+            {"line", loc.line},
+            {"start_column", loc.start_column},
+            {"end_column", loc.end_column},
+        };
         return j;
     }
 };

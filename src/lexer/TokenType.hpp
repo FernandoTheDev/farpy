@@ -60,6 +60,7 @@ enum TokenType
     // Keywords
     IF,
     ELSE,
+    ELSEIF,
     WHILE,
     FOR,
     DO,
@@ -72,6 +73,9 @@ enum TokenType
     AS,
     IMPORT,
     FOREACH,
+    NEW,
+    MUT,
+    OF,
 
     // End of file
     END_OF_FILE
@@ -91,4 +95,4 @@ struct Token
     Loc loc;
 };
 
-#endif 
+#endif
