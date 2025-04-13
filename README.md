@@ -1,3 +1,3 @@
 # Farpy
 
-FarpyScript will be remade in c++
+FarpyScript will be remade
