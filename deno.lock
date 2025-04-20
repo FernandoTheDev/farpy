@@ -1,0 +1,11 @@
+{
+  "version": "4",
+  "specifiers": {
+    "jsr:@std/cli@*": "1.0.15"
+  },
+  "jsr": {
+    "@std/cli@1.0.15": {
+      "integrity": "e79ba3272ec710ca44d8342a7688e6288b0b88802703f3264184b52893d5e93f"
+    }
+  }
+}
