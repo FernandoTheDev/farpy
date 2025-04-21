@@ -1,3 +1,4 @@
+import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
 import { Keywords, Loc, NativeValue, Token, TokenType } from "./token.ts";
 
 export class Lexer {
@@ -42,77 +43,93 @@ export class Lexer {
     "!=": TokenType.NOT_EQUALS,
   };
 
-  public constructor(file: string, source: string) {
+  public constructor(
+    file: string,
+    source: string,
+    private reporter: DiagnosticReporter,
+  ) {
     this.file = file;
     this.source = source;
   }
 
-  public tokenize(): Token[] {
-    while (this.offset < this.source.length) {
-      this.start = this.offset - this.lineOffset; // Sets start to local offset
-      const char = this.source[this.offset];
+  public tokenize(): Token[] | null {
+    try {
+      while (this.offset < this.source.length) {
+        this.start = this.offset - this.lineOffset; // Sets start to local offset
+        const char = this.source[this.offset];
 
-      if (char === "\n") {
-        this.line++;
-        this.offset++;
-        this.lineOffset = this.offset;
-        continue;
+        if (char === "\n") {
+          this.line++;
+          this.offset++;
+          this.lineOffset = this.offset;
+          continue;
+        }
+
+        if (char.trim() === "") {
+          this.offset++;
+          continue;
+        }
+
+        if (
+          char === "/" && this.source[this.offset + 1] === "/" ||
+          this.source[this.offset + 1] === "*"
+        ) {
+          this.lexing_comment();
+          continue;
+        }
+
+        const muti = char.concat(this.source[this.offset + 1]);
+        const multiTokenType = Lexer
+          .MULTI_CHAR_TOKENS[
+            muti
+          ];
+
+        if (multiTokenType) {
+          this.offset++; // skip second char
+          this.createToken(multiTokenType, muti);
+          continue;
+        }
+
+        const singleTokenType = Lexer.SINGLE_CHAR_TOKENS[char];
+
+        if (singleTokenType) {
+          this.createToken(singleTokenType, char);
+          continue;
+        }
+
+        // Checks if it is a string (unclosed string error)
+        if (char === '"') {
+          this.lexing_string();
+          continue;
+        }
+
+        // Check if it is a number (int, float or binary)
+        if (this.isDigit(char)) {
+          this.lexing_digit();
+          continue;
+        }
+
+        // Fernand0
+        // print
+        if (this.isAlphaNumeric(char)) {
+          this.lexing_alphanumeric();
+          continue;
+        }
+
+        this.reporter.addError(
+          this.makeLocation(char),
+          `Unexpected token "${char}"`,
+          [
+            this.reporter.makeSuggestion(
+              "Remove the character and see if the error is resolved.",
+              this.getLineText(this.line).replace(char, ""),
+            ),
+          ],
+        );
+        return null;
       }
-
-      if (char.trim() === "") {
-        this.offset++;
-        continue;
-      }
-
-      if (
-        char === "/" && this.source[this.offset + 1] === "/" ||
-        this.source[this.offset + 1] === "*"
-      ) {
-        this.lexing_comment();
-        continue;
-      }
-
-      const muti = char.concat(this.source[this.offset + 1]);
-      const multiTokenType = Lexer
-        .MULTI_CHAR_TOKENS[
-          muti
-        ];
-
-      if (multiTokenType) {
-        this.offset++; // skip second char
-        this.createToken(multiTokenType, muti);
-        continue;
-      }
-
-      const singleTokenType = Lexer.SINGLE_CHAR_TOKENS[char];
-
-      if (singleTokenType) {
-        this.createToken(singleTokenType, char);
-        continue;
-      }
-
-      // Checks if it is a string (unclosed string error)
-      if (char === '"') {
-        this.lexing_string();
-        continue;
-      }
-
-      // Check if it is a number (int, float or binary)
-      if (this.isDigit(char)) {
-        this.lexing_digit();
-        continue;
-      }
-
-      // Fernand0
-      // print
-      if (this.isAlphaNumeric(char)) {
-        this.lexing_alphanumeric();
-        continue;
-      }
-
-      // If the character is not valid, it shows an error
-      console.log(`Invalid char '${char}'`);
-      Deno.exit(1);
+    } catch (_error: any) {
+      // ignore
     }
 
     this.createToken(
@@ -218,8 +235,16 @@ export class Lexer {
     }
 
     if (this.source[this.offset] !== '"') {
-      console.log("String not closed.");
-      Deno.exit(1);
+      this.reporter.addError(
+        this.makeLocation(value),
+        `String not closed`,
+        [
+          this.reporter.makeSuggestion(
+            "Add '\"' at the end of the desired string.",
+          ),
+        ],
+      );
+      throw new Error(`String not closed`);
     }
 
     this.createToken(
@@ -229,7 +254,8 @@ export class Lexer {
   }
 
   private lexing_comment(): void {
-    this.offset++;
+    const next = this.offset++;
+    const init_line = this.line;
 
     if (this.source[this.offset] === "/") {
       this.offset++;
@@ -258,14 +284,31 @@ export class Lexer {
       if (this.offset < this.source.length) {
         this.offset += 2;
       } else {
-        console.log("Unclosed block comment");
-        Deno.exit(1);
+        this.reporter.addError(
+          this.makeLocation(this.source[next - 1], init_line),
+          "Unclosed block comment",
+          [
+            this.reporter.makeSuggestion(
+              "Close the comment block.",
+              "Add '*/' at the end.",
+            ),
+          ],
+        );
+        throw new Error("Unclosed block comment");
       }
       return;
     }
 
-    console.log("Unexpected character after '/'");
-    Deno.exit(1);
+    this.reporter.addError(
+      this.makeLocation(this.source[next]),
+      "Unexpected character after '/'",
+      [
+        this.reporter.makeSuggestion(
+          "Remove the character and see if the error is resolved.",
+        ),
+      ],
+    );
+    throw new Error("Unexpected character after '/'");
   }
 
   private isAlphaNumeric(token: string): boolean {
@@ -276,14 +319,23 @@ export class Lexer {
     return /^[0-9]$/.test(char);
   }
 
-  private getLocation(start: number, end: number): Loc {
+  private getLocation(start: number, end: number, line?: number): Loc {
+    const _line = line ? line : this.line;
     return {
       file: this.file,
-      line: this.line,
+      line: _line,
       start,
       end,
-      line_string: this.getLineText(this.line),
+      line_string: this.getLineText(_line),
     };
+  }
+
+  private makeLocation(value: any, line?: number): Loc {
+    return this.getLocation(
+      this.start,
+      this.start + (String(value).length ?? 0),
+      line,
+    );
   }
 
   private createToken(
@@ -294,10 +346,7 @@ export class Lexer {
     const token: Token = {
       kind,
       value,
-      loc: this.getLocation(
-        this.start,
-        this.start + (String(value).length ?? 0),
-      ),
+      loc: this.makeLocation(value),
     };
     this.tokens.push(token);
     if (jump) this.offset++;

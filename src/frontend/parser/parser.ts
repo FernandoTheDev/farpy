@@ -14,8 +14,8 @@ import {
   Stmt,
   VariableDeclaration,
 } from "./ast.ts";
+import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
 
-type PrefixParseFn = () => Expr;
 type InfixParseFn = (left: Expr) => Expr;
 
 enum Precedence {
@@ -36,7 +36,7 @@ export class Parser {
   private tokens: Token[];
   private pos = 0;
 
-  constructor(tokens: Token[]) {
+  constructor(tokens: Token[], private reporter: DiagnosticReporter) {
     this.tokens = tokens;
   }
 
@@ -49,12 +49,23 @@ export class Parser {
       body: [],
       loc: {} as Loc,
     };
-    while (!this.isAtEnd()) {
-      program.body!.push(this.parseStmt());
+
+    try {
+      while (!this.isAtEnd()) {
+        program.body!.push(this.parseStmt());
+      }
+
+      program.loc = this.tokens.length > 0
+        ? this.makeLoc(
+          this.tokens[0].loc,
+          this.tokens[this.tokens.length - 1].loc,
+        )
+        : {} as Loc;
+    } catch (_error: any) {
+      // Does nothing here, just lets the error propagate
+      // The reporter already contains the recorded errors
     }
-    program.loc = this.tokens.length > 0
-      ? this.tokens[0].loc && this.tokens[this.tokens.length - 1].loc
-      : {} as Loc;
+
     return program;
   }
 
@@ -113,6 +124,10 @@ export class Parser {
         return expr;
       }
       default:
+        this.reporter.addError(
+          token.loc,
+          `No prefix parse function for '${token.value}'.`,
+        );
         throw new Error(`No prefix parse function for ${token.value}`);
     }
   }
@@ -242,7 +257,13 @@ export class Parser {
   }
   private consume(expected: TokenType, message: string): Token {
     if (this.check(expected)) return this.advance();
-    throw new Error(message);
+    const token = this.peek();
+    this.reporter.addError(
+      token.loc,
+      message,
+    );
+
+    throw new Error(`Erro de parsing: ${message}`);
   }
   private getPrecedence(kind: TokenType): Precedence {
     switch (kind) {

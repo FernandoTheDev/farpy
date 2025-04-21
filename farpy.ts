@@ -12,6 +12,8 @@ import { Parser } from "./src/frontend/parser/parser.ts";
 import { Semantic } from "./src/middle/semantic.ts";
 import { LLVMIRGenerator } from "./src/middle/llvm_ir_gen.ts";
 import { FarpyCompiler } from "./src/backend/compiler.ts";
+import { DiagnosticReporter } from "./src/error/diagnosticReporter.ts";
+import { Token } from "./src/frontend/lexer/token.ts";
 
 const parsedArgs = parseArgs(Deno.args, {
   alias: {
@@ -35,8 +37,33 @@ if (!fileName) {
 }
 
 const fileData = Deno.readTextFileSync(fileName);
-const tokens = new Lexer(fileName, fileData).tokenize();
-const ast = new Parser(tokens).parse();
+const reporter = new DiagnosticReporter();
+
+const tokens = new Lexer(fileName, fileData, reporter).tokenize();
+
+if (reporter.hasWarnings() && !reporter.hasErrors()) {
+  reporter.printDiagnostics();
+  console.log(reporter.getSummary());
+}
+
+if (reporter.hasErrors()) {
+  reporter.printDiagnostics();
+  console.log(reporter.getSummary());
+  Deno.exit(-1);
+}
+
+const ast = new Parser(tokens as Token[], reporter).parse();
+
+if (reporter.hasWarnings() && !reporter.hasErrors()) {
+  reporter.printDiagnostics();
+  console.log(reporter.getSummary());
+}
+
+if (reporter.hasErrors()) {
+  reporter.printDiagnostics();
+  console.log(reporter.getSummary());
+  Deno.exit(-1);
+}
 
 if (parsedArgs["ast-json"]) {
   Deno.writeTextFileSync(
