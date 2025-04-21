@@ -1,5 +1,5 @@
-import { Expr as _Expr } from "../parser/ast.ts";
-import { Loc, NativeValue } from "../lexer/token.ts";
+import { Expr as _Expr } from "./parser/ast.ts";
+import { Loc, NativeValue } from "./lexer/token.ts";
 
 // export interface GenericType {
 //   base: string; // ex: "lambda", "list", etc.

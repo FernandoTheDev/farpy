@@ -1,5 +1,27 @@
 import { Loc } from "../lexer/token.ts";
-import { TypesNative } from "../compiler/values.ts";
+import { TypesNative } from "../values.ts";
+
+export enum LLVMType {
+  // Tipos inteiros
+  I1 = "i1", // Booleano (1 bit)
+  I8 = "i8", // Byte (8 bits)
+  I16 = "i16", // Short (16 bits)
+  I32 = "i32", // Int (32 bits)
+  I64 = "i64", // Long (64 bits)
+
+  // Tipos de ponto flutuante
+  FLOAT = "float", // Float de precisão simples (32 bits)
+  DOUBLE = "double", // Float de precisão dupla (64 bits)
+
+  // Outros tipos
+  VOID = "void", // Tipo vazio
+  LABEL = "label", // Rótulo para saltos
+  PTR = "ptr", // Ponteiro genérico
+
+  // Arrays e Structs geralmente são representados de forma mais complexa
+  // mas podemos ter tipos comuns como:
+  STRING = "i8*", // String é um ponteiro para i8 em LLVM
+}
 
 export type NodeType =
   | "Program"
@@ -11,6 +33,9 @@ export type NodeType =
   | "IntLiteral"
   | "FloatLiteral"
   | "BinaryLiteral"
+  | "VariableDeclaration"
+  | "CallExpr"
+  | "ImportStatement"
   | "NullLiteral";
 
 export interface Stmt {
@@ -19,6 +44,7 @@ export interface Stmt {
   // deno-lint-ignore no-explicit-any
   value: any;
   loc: Loc;
+  llvmType?: LLVMType;
 }
 
 export interface Expr extends Stmt {}
@@ -44,6 +70,15 @@ export interface IncrementExpr extends Expr {
 export interface DecrementExpr extends Expr {
   kind: "DecrementExpr";
   value: Expr;
+}
+
+export interface VariableDeclaration extends Stmt {
+  kind: "VariableDeclaration";
+  id: Identifier;
+  value: Expr;
+  type: TypesNative | TypesNative[];
+  mutable: boolean;
+  loc: Loc;
 }
 
 export interface Identifier extends Expr {
@@ -128,4 +163,17 @@ export function AST_NULL(loc: Loc): NullLiteral {
     value: null,
     loc: loc,
   } as NullLiteral;
+}
+
+export interface CallExpr extends Expr {
+  kind: "CallExpr";
+  callee: Identifier;
+  type: TypesNative | TypesNative[];
+  arguments: Expr[] | Stmt[];
+}
+
+export interface ImportStatement extends Stmt {
+  kind: "ImportStatement";
+  path: StringLiteral;
+  isStdLib: boolean;
 }

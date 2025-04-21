@@ -7,15 +7,24 @@
  * See the LICENSE file in the project root for full license information.
  */
 import { parseArgs } from "jsr:@std/cli";
-import { Lexer } from "./src/lexer/lexer.ts";
-import { Parser } from "./src/parser/parser.ts";
+import { Lexer } from "./src/frontend/lexer/lexer.ts";
+import { Parser } from "./src/frontend/parser/parser.ts";
+import { Semantic } from "./src/middle/semantic.ts";
+import { LLVMIRGenerator } from "./src/middle/llvm_ir_gen.ts";
+import { FarpyCompiler } from "./src/backend/compiler.ts";
 
 const parsedArgs = parseArgs(Deno.args, {
   alias: {
     h: "help",
     v: "version",
+    astj: "ast-json",
+    astjs: "ast-json-save",
+    o: "output",
+    eir: "emit-llvm-ir",
   },
-  boolean: ["help", "version"],
+  boolean: ["help", "version", "ast-json", "debug", "emit-llvm-ir"],
+  string: ["ast-json-save", "output"],
+  default: { "ast-json-save": "ast.json", "output": "a.out" },
 });
 
 const fileName: string = parsedArgs._[0] as string;
@@ -29,4 +38,33 @@ const fileData = Deno.readTextFileSync(fileName);
 const tokens = new Lexer(fileName, fileData).tokenize();
 const ast = new Parser(tokens).parse();
 
-console.log("AST: ", ast);
+if (parsedArgs["ast-json"]) {
+  Deno.writeTextFileSync(
+    parsedArgs["ast-json-save"],
+    JSON.stringify(ast, null, "\t"),
+  );
+  Deno.exit(0);
+}
+
+const semantic = Semantic.getInstance();
+// console.log(semantic.semantic(ast));
+
+const llvm_ir_gen = LLVMIRGenerator.getInstance();
+const llvm_ir = llvm_ir_gen.generateIR(
+  semantic.semantic(ast),
+  semantic,
+  fileName,
+);
+
+if (parsedArgs["emit-llvm-ir"]) {
+  console.log(llvm_ir);
+  Deno.exit(0);
+}
+
+const compiler = new FarpyCompiler(
+  llvm_ir,
+  parsedArgs["output"],
+  semantic,
+  parsedArgs["debug"],
+);
+await compiler.compile();

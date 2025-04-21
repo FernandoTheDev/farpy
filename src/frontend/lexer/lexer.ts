@@ -64,7 +64,10 @@ export class Lexer {
         continue;
       }
 
-      if (char === "/") {
+      if (
+        char === "/" && this.source[this.offset + 1] === "/" ||
+        this.source[this.offset + 1] === "*"
+      ) {
         this.lexing_comment();
         continue;
       }
