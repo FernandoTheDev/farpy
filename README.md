@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" width="250" alt="farpy logo"/>
+  <img src="assets/logo.png" width="150" alt="farpy logo"/>
 </p>
 
 # Farpy Compiler
