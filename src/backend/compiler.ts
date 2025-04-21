@@ -1,6 +1,9 @@
 import { Semantic } from "../middle/semantic.ts";
 
 export class FarpyCompiler {
+  private tempFiles: string[] = [];
+  private stdLibFiles: string[] = [];
+
   constructor(
     private sourceCode: string,
     private outputFile: string,
@@ -29,98 +32,87 @@ export class FarpyCompiler {
     }
   }
 
-  public async compile(): Promise<void> {
-    const file_ll = Deno.makeTempFileSync({ suffix: ".ll" });
-    const file_bc = Deno.makeTempFileSync({ suffix: ".bc" });
-    const opt_file_bc = Deno.makeTempFileSync({ suffix: ".bc" });
-    const file_asm = Deno.makeTempFileSync({ suffix: ".s" });
+  private createTempFile(suffix: string): string {
+    const tempFile = Deno.makeTempFileSync({ suffix });
+    this.tempFiles.push(tempFile);
+    return tempFile;
+  }
 
-    const stdLibFiles: string[] = [];
-    const tempFiles: string[] = [file_ll, file_bc, opt_file_bc, file_asm];
+  private async compileStdLibs(
+    stdLibs: string[],
+    destFile: string,
+  ): Promise<void> {
+    if (stdLibs.length === 0) return;
+
+    this.log("Compiling standard libraries...");
+
+    for (const lib of stdLibs) {
+      const libFile = this.createTempFile(".bc");
+      this.stdLibFiles.push(libFile);
+
+      await this.executeCommand(
+        "clang",
+        [`./stdlib/${lib}.c`, "-c", "-emit-llvm", "-o", libFile],
+        `Error compiling ${lib} library:`,
+      );
+    }
+
+    if (this.stdLibFiles.length > 0) {
+      this.log("Linking libraries with user code...");
+      await this.executeCommand(
+        "llvm-link",
+        [destFile, ...this.stdLibFiles, "-o", destFile],
+        "Error linking libraries:",
+      );
+    }
+  }
+
+  private cleanupTempFiles(): void {
+    for (const file of this.tempFiles) {
+      try {
+        Deno.removeSync(file);
+      } catch (e) {
+        if (this.debug) {
+          console.error(`Error removing temporary file ${file}:`, e);
+        }
+      }
+    }
+  }
+
+  public async compile(): Promise<void> {
+    const file_ll = this.createTempFile(".ll");
+    const file_bc = this.createTempFile(".bc");
 
     try {
       Deno.writeTextFileSync(file_ll, this.sourceCode);
 
-      this.log("Compilando o código LLVM IR para bitcode (.bc)...");
+      this.log("Compiling LLVM IR to bitcode (.bc)...");
       await this.executeCommand(
         "llvm-as",
         [file_ll, "-o", file_bc],
-        "Erro ao compilar .ll para .bc:",
+        "Error compiling .ll to .bc:",
       );
-      this.log("Compilação para bitcode concluída.");
+      this.log("Bitcode compilation completed.");
 
-      const stdLibs = [...this.instance.importedModules];
-      if (stdLibs.length > 0) {
-        this.log("Compilando bibliotecas padrão...");
+      await this.compileStdLibs([...this.instance.importedModules], file_bc);
 
-        for (const lib of stdLibs) {
-          const libFile = Deno.makeTempFileSync({ suffix: ".bc" });
-          stdLibFiles.push(libFile);
-          tempFiles.push(libFile);
-
-          await this.executeCommand(
-            "clang",
-            [`./stdlib/${lib}.c`, "-c", "-emit-llvm", "-o", libFile],
-            `Erro ao compilar biblioteca ${lib}:`,
-          );
-        }
-
-        if (stdLibFiles.length > 0) {
-          this.log("Vinculando bibliotecas com o código do usuário...");
-
-          await this.executeCommand(
-            "llvm-link",
-            [file_bc, ...stdLibFiles, "-o", file_bc],
-            "Erro ao vincular bibliotecas:",
-          );
-        }
-      }
-
-      // Otimizar bitcode
-      this.log("Otimizando bitcode...");
-      await this.executeCommand(
-        "opt",
-        ["-O3", file_bc, "-o", opt_file_bc],
-        "Erro ao otimizar bitcode (.bc):",
-      );
-      this.log("Otimização de bitcode concluída.");
-
-      // Gerar assembly a partir do bitcode
-      this.log("Gerando assembly...");
-      await this.executeCommand(
-        "llc",
-        [opt_file_bc, "-o", file_asm],
-        "Erro ao gerar assembly (.s):",
-      );
-      this.log("Geração de assembly concluída.");
-
-      // Compilar assembly para binário
-      this.log("Compilando o assembly para binário...");
+      this.log("Compiling bitcode to binary...");
       await this.executeCommand(
         "clang",
-        [file_asm, "-o", this.outputFile],
-        "Erro ao compilar o binário:",
+        [file_bc, "-O3", "-fPIE", "-o", this.outputFile],
+        "Error compiling binary:",
       );
-      this.log("Compilação para binário concluída.");
+      this.log("Binary compilation completed.");
 
-      // Otimizar binário (strip)
-      this.log("Otimizando binário...");
+      this.log("Optimizing binary...");
       await this.executeCommand(
         "strip",
         [this.outputFile],
-        "Erro ao otimizar o binário:",
+        "Error optimizing binary:",
       );
-      this.log("Compilação finalizada com sucesso!");
+      this.log("Compilation successfully completed!");
     } finally {
-      for (const file of tempFiles) {
-        try {
-          Deno.removeSync(file);
-        } catch (e) {
-          if (this.debug) {
-            console.error(`Erro ao remover arquivo temporário ${file}:`, e);
-          }
-        }
-      }
+      this.cleanupTempFiles();
     }
   }
 }
