@@ -76,7 +76,83 @@ function initializeStdLibs() {
     ]),
   };
 
+  const mathModule: StdLibModule = {
+    name: "math",
+    functions: new Map([
+      ["sin", {
+        name: "sin",
+        returnType: "double",
+        params: ["double"],
+        isVariadic: false,
+        llvmName: "sin",
+        ir: "declare double @sin(double)",
+        isStdLib: true,
+      }],
+
+      ["cos", {
+        name: "cos",
+        returnType: "double",
+        params: ["double"],
+        isVariadic: false,
+        llvmName: "cos",
+        ir: "declare double @cos(double)",
+        isStdLib: true,
+      }],
+
+      ["log", {
+        name: "log",
+        returnType: "double",
+        params: ["double"],
+        isVariadic: false,
+        llvmName: "log",
+        ir: "declare double @log(double)",
+        isStdLib: true,
+      }],
+
+      ["exp", {
+        name: "exp",
+        returnType: "double",
+        params: ["double"],
+        isVariadic: false,
+        llvmName: "exp",
+        ir: "declare double @exp(double)",
+        isStdLib: true,
+      }],
+
+      ["sqrt", {
+        name: "sqrt",
+        returnType: "double",
+        params: ["double"],
+        isVariadic: false,
+        llvmName: "sqrt",
+        ir: "declare double @sqrt(double)",
+        isStdLib: true,
+      }],
+
+      ["pi", {
+        name: "pi",
+        returnType: "double",
+        params: [],
+        isVariadic: false,
+        llvmName: "pi",
+        ir: "define double @pi() { ret double 3.141592653589793 }",
+        isStdLib: true,
+      }],
+
+      ["e", {
+        name: "e",
+        returnType: "double",
+        params: [],
+        isVariadic: false,
+        llvmName: "e",
+        ir: "define double @e() { ret double 2.718281828459045 }",
+        isStdLib: true,
+      }],
+    ]),
+  };
+
   stdLibModules.set("io", ioModule);
+  stdLibModules.set("math", mathModule);
 }
 
 export class Semantic {
@@ -93,6 +169,7 @@ export class Semantic {
     this.typeMap.set("int", LLVMType.I32);
     this.typeMap.set("i32", LLVMType.I32);
     this.typeMap.set("float", LLVMType.DOUBLE);
+    this.typeMap.set("double", LLVMType.DOUBLE);
     this.typeMap.set("string", LLVMType.STRING);
     this.typeMap.set("bool", LLVMType.I1);
     this.typeMap.set("binary", LLVMType.I32);
@@ -334,16 +411,20 @@ export class Semantic {
       );
     }
 
-    if (analyzedValue.type !== decl.type) {
-      if (!this.areTypesCompatible(analyzedValue.type, decl.type)) {
-        throw new Error(
-          `Type mismatch: Cannot assign value of type '${analyzedValue.type}' to variable of type '${decl.type}' at ${decl.loc.line}:${decl.loc.start}`,
-        );
-      }
-    }
+    // if (analyzedValue.type !== decl.type) {
+    //   if (!this.areTypesCompatible(analyzedValue.type, decl.type)) {
+    //     console.log(decl.type);
+    //     console.log(analyzedValue.type);
+    //     throw new Error(
+    //       `Type mismatch: Cannot assign value of type '${analyzedValue.type}' to variable of type '${decl.type}' at ${decl.loc.line}:${decl.loc.start}`,
+    //     );
+    //   }
+    // }
 
     const actualType = analyzedValue.type ?? decl.type;
     const llvmType = this.mapToLLVMType(actualType);
+
+    // console.log("Define ", decl.id.value);
 
     this.defineSymbol({
       id: decl.id.value,
@@ -467,7 +548,7 @@ export class Semantic {
           return "string";
         }
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return leftType === "float" || rightType === "float"
+          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
             ? "float"
             : "int";
         }
@@ -479,7 +560,7 @@ export class Semantic {
       case "*":
       case "/":
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return leftType === "float" || rightType === "float"
+          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
             ? "float"
             : "int";
         }
@@ -532,8 +613,16 @@ export class Semantic {
     }
   }
 
+  private isFloat(left: TypesNative, right: TypesNative): boolean {
+    return (
+      left === "float" || right === "float" || left === "double" ||
+      right === "double"
+    );
+  }
+
   private isNumericType(type: TypesNative | TypesNative[]): boolean {
-    return type === "int" || type === "float" || type === "binary";
+    return type === "int" || type === "float" || type === "binary" ||
+      type === "double";
   }
 
   private areTypesCompatible(
@@ -546,6 +635,7 @@ export class Semantic {
       sourceType === "float" && targetType === "int"
     ) return true;
     if (sourceType === "binary" && targetType === "int") return true;
+    if (sourceType === "id" || targetType === "id") return true;
     return false;
   }
 }

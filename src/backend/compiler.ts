@@ -9,6 +9,7 @@ export class FarpyCompiler {
     private outputFile: string,
     private instance: Semantic,
     private debug: boolean = false,
+    private target: string = "",
   ) {}
 
   private log(message: string): void {
@@ -50,9 +51,12 @@ export class FarpyCompiler {
       const libFile = this.createTempFile(".bc");
       this.stdLibFiles.push(libFile);
 
+      const args = [`./stdlib/${lib}.c`, "-c", "-emit-llvm", "-o", libFile];
+      if (this.target) args.push("-target", this.target);
+
       await this.executeCommand(
         "clang",
-        [`./stdlib/${lib}.c`, "-c", "-emit-llvm", "-o", libFile],
+        args,
         `Error compiling ${lib} library:`,
       );
     }
@@ -97,9 +101,14 @@ export class FarpyCompiler {
       await this.compileStdLibs([...this.instance.importedModules], file_bc);
 
       this.log("Compiling bitcode to binary...");
+
+      const args = [file_bc, "-O3", "-fPIE", "-o", this.outputFile];
+      if (this.target) args.push("-target", this.target);
+      if (this.target) this.log("Compiling to target: " + this.target);
+
       await this.executeCommand(
         "clang",
-        [file_bc, "-O3", "-fPIE", "-o", this.outputFile],
+        args,
         "Error compiling binary:",
       );
       this.log("Binary compilation completed.");

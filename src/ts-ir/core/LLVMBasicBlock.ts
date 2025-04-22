@@ -189,8 +189,63 @@ export class LLVMBasicBlock {
     if (value.type !== base) {
       throw new Error(`Erro store: tipos ${value.type} != ${base}`);
     }
-    this.add(`store ${base} ${value.value}, ${base}* ${ptr.value}, align 4`);
+    this.add(
+      `store ${value.type} ${value.value}, ${value.type}* ${ptr.value}, align 4`,
+    );
   }
+
+  // public storeInst(value: IRValue, ptr: IRValue): void {
+  //   if (!ptr.type.endsWith("*")) {
+  //     throw new Error(`Erro store: alvo não é ponteiro`);
+  //   }
+
+  //   const baseType = ptr.type.slice(0, -1);
+
+  //   // Se o tipo do valor corresponde ao tipo base do ponteiro, não precisa converter
+  //   if (value.type === baseType) {
+  //     this.add(
+  //       `store ${baseType} ${value.value}, ${ptr.type} ${ptr.value}, align 4`,
+  //     );
+  //     return;
+  //   }
+
+  //   // Caso contrário, precisa converter explicitamente
+  //   const tmp = this.nextTemp();
+
+  //   // Determinar a instrução de conversão correta
+  //   let convInstr = "";
+
+  //   if (this.isFloat(value.type) && this.isInteger(baseType)) {
+  //     convInstr = `fptosi ${value.type} ${value.value} to ${baseType}`;
+  //   } else if (this.isInteger(value.type) && this.isFloat(baseType)) {
+  //     convInstr = `sitofp ${value.type} ${value.value} to ${baseType}`;
+  //   } else if (this.isInteger(value.type) && this.isInteger(baseType)) {
+  //     const r1 = this.getIntRank(value.type);
+  //     const r2 = this.getIntRank(baseType);
+  //     convInstr = (r1 > r2)
+  //       ? `trunc ${value.type} ${value.value} to ${baseType}`
+  //       : `zext ${value.type} ${value.value} to ${baseType}`;
+  //   } else if (this.isFloat(value.type) && this.isFloat(baseType)) {
+  //     const r1 = this.getFloatRank(value.type);
+  //     const r2 = this.getFloatRank(baseType);
+  //     convInstr = (r1 > r2)
+  //       ? `fptrunc ${value.type} ${value.value} to ${baseType}`
+  //       : `fpext ${value.type} ${value.value} to ${baseType}`;
+  //   }
+
+  //   // Se não conseguimos determinar uma conversão válida
+  //   if (!convInstr) {
+  //     throw new Error(
+  //       `Erro store: não foi possível converter ${value.type} para ${baseType}`,
+  //     );
+  //   }
+
+  //   // Adicionar a instrução de conversão
+  //   this.add(`${tmp} = ${convInstr}`);
+
+  //   // Armazenar o valor convertido
+  //   this.add(`store ${baseType} ${tmp}, ${ptr.type} ${ptr.value}, align 4`);
+  // }
 
   public getElementPtr(arrayType: string, globalLabel: string): IRValue {
     const baseType = arrayType.match(/\[\d+ x (.+)\]/)?.[1] || arrayType;
