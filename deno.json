@@ -1,5 +1,8 @@
 {
   "tasks": {
     "compile": "deno compile -A -o farpy farpy.ts"
+  },
+  "imports": {
+    "@std/fmt": "jsr:@std/fmt@^1.0.6"
   }
 }
