@@ -15,7 +15,7 @@ We will provide security updates for the following versions of Farpy:
 If you believe you have discovered a security vulnerability in Farpy, please follow these steps:
 
 1. **Email**: Send a report to our security team at:
-   - **Email**: [fernandothedev](mailto:vanmodderytp.com)
+   - **Email**: [fernandothedev](mailto:vanmodderytp@gmail.com)
 
 2. **Details to Include**: When reporting a vulnerability, please provide:
    - A clear and detailed description of the vulnerability.
