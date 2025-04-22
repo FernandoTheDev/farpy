@@ -13,7 +13,7 @@ To ensure a smooth contribution process, please follow these steps:
    Clone the forked repository to your local machine:
 
    ```bash
-   git clone https://github.com/fernandothedev/farpy.git
+   git clone https://github.com/<you-username>/farpy.git
    cd farpy
    ```
 
