@@ -133,6 +133,7 @@ export class Parser {
   }
 
   private parseNewExpression(): Expr {
+    const start = this.previous();
     const mutable: boolean = this.match(TokenType.MUT);
     const id = this.consume(
       TokenType.IDENTIFIER,
@@ -142,7 +143,7 @@ export class Parser {
     this.consume(TokenType.EQUALS, "Expect '=' after variable name.");
     const expr = this.parseExpression(Precedence.LOWEST);
     const type = expr.type;
-    const loc = this.makeLoc(id.loc, expr.loc);
+    const loc = this.makeLoc(start.loc, expr.loc);
 
     return {
       kind: "VariableDeclaration",

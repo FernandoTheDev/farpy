@@ -162,6 +162,7 @@ export class Semantic {
   private typeMap: Map<TypesNative | string, LLVMType> = new Map();
   public availableFunctions: Map<string, StdLibFunction> = new Map();
   public importedModules: Set<string> = new Set();
+  public identifiersUsed: Set<string> = new Set();
 
   private constructor() {
     this.pushScope();
@@ -341,11 +342,22 @@ export class Semantic {
 
     for (
       let i = 0;
-      i < Math.min(node.arguments.length, funcInfo.params.length);
+      i < node.arguments.length;
       i++
     ) {
+      if (
+        node.arguments[i].kind === "Identifier" &&
+        !this.identifiersUsed.has(node.arguments[i].value)
+      ) {
+        this.identifiersUsed.add(node.arguments[i].value);
+      }
+
       const argType = node.arguments[i].type;
       const paramType = funcInfo.params[i] as TypesNative;
+
+      if (paramType == undefined && funcInfo.isVariadic) {
+        continue;
+      }
 
       if (argType != "string" && paramType == "string") {
         node.arguments[i].type = "string";
@@ -393,6 +405,10 @@ export class Semantic {
       );
     }
 
+    if (!this.identifiersUsed.has(id.value)) {
+      this.identifiersUsed.add(id.value);
+    }
+
     return {
       ...id,
       type: symbol.sourceType,
@@ -411,20 +427,8 @@ export class Semantic {
       );
     }
 
-    // if (analyzedValue.type !== decl.type) {
-    //   if (!this.areTypesCompatible(analyzedValue.type, decl.type)) {
-    //     console.log(decl.type);
-    //     console.log(analyzedValue.type);
-    //     throw new Error(
-    //       `Type mismatch: Cannot assign value of type '${analyzedValue.type}' to variable of type '${decl.type}' at ${decl.loc.line}:${decl.loc.start}`,
-    //     );
-    //   }
-    // }
-
     const actualType = analyzedValue.type ?? decl.type;
     const llvmType = this.mapToLLVMType(actualType);
-
-    // console.log("Define ", decl.id.value);
 
     this.defineSymbol({
       id: decl.id.value,

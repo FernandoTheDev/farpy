@@ -14,6 +14,9 @@ import { LLVMIRGenerator } from "./src/middle/llvm_ir_gen.ts";
 import { FarpyCompiler } from "./src/backend/compiler.ts";
 import { DiagnosticReporter } from "./src/error/diagnosticReporter.ts";
 import { Token } from "./src/frontend/lexer/token.ts";
+import { Optimizer } from "./src/middle/optimizer.ts";
+import { Program } from "./src/frontend/parser/ast.ts";
+import { DeadCodeAnalyzer } from "./src/middle/dead_code_analyzer.ts";
 
 const ARG_CONFIG = {
   alias: {
@@ -23,6 +26,7 @@ const ARG_CONFIG = {
     astjs: "ast-json-save",
     o: "output",
     eir: "emit-llvm-ir",
+    opt: "optimize",
   },
   boolean: [
     "help",
@@ -31,6 +35,7 @@ const ARG_CONFIG = {
     "debug",
     "emit-llvm-ir",
     "targeth",
+    "optmize",
   ],
   string: ["ast-json-save", "output", "target"],
   default: { "ast-json-save": "ast.json", "output": "a.out" },
@@ -92,6 +97,7 @@ OPTIONS:
   --ast-json              Output AST as JSON and exit
   --ast-json-save=<file>  Save AST JSON to specified file (default: ast.json)
   -o, --output=<file>     Specify output file name (default: a.out)
+  --opt, --optimize       Enable optimization in AST
   --debug                 Enable debug mode
   --emit-llvm-ir          Output LLVM IR and exit
   --target=<target>       Specify target architecture (default: your architecture)
@@ -137,6 +143,10 @@ class FarpyCompilerMain {
 
   private showTargetHelp(): void {
     console.log(TARGET_HELP_MESSAGE);
+  }
+
+  private shouldOptimize(): boolean {
+    return this.args.optimize === true;
   }
 
   private shouldShowHelp(): boolean {
@@ -205,9 +215,23 @@ class FarpyCompilerMain {
     return false;
   }
 
-  private runSemanticAnalysis(ast: any): any {
-    const semantic = Semantic.getInstance();
-    return semantic.semantic(ast);
+  private runDeadCodeAnalyzer(ast: Program, semantic: Semantic): any {
+    const analyzer = new DeadCodeAnalyzer(semantic, this.reporter).analyze(
+      semantic.semantic(ast),
+    );
+
+    if (this.reporter.hasWarnings() && !this.reporter.hasErrors()) {
+      this.reporter.printDiagnostics();
+      console.log(this.reporter.getSummary());
+    }
+
+    if (this.reporter.hasErrors()) {
+      this.reporter.printDiagnostics();
+      console.log(this.reporter.getSummary());
+      return null;
+    }
+
+    return analyzer;
   }
 
   private generateLLVMIR(semanticAST: any, semantic: any): string {
@@ -249,9 +273,17 @@ class FarpyCompilerMain {
       if (this.handleAstJson(ast)) return;
 
       const semantic = Semantic.getInstance();
-      const semanticAST = this.runSemanticAnalysis(ast);
+      let final_ast = this.runDeadCodeAnalyzer(ast, semantic);
 
-      const llvmIR = this.generateLLVMIR(semanticAST, semantic);
+      if (this.shouldOptimize()) {
+        const optmizer = new Optimizer();
+        final_ast = optmizer.resume(final_ast);
+      }
+
+      const llvmIR = this.generateLLVMIR(
+        final_ast,
+        semantic,
+      );
 
       if (this.handleEmitIR(llvmIR)) return;
 

@@ -1,0 +1,56 @@
+import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
+import {
+  Expr,
+  Program,
+  Stmt,
+  VariableDeclaration,
+} from "../frontend/parser/ast.ts";
+import { Semantic } from "./semantic.ts";
+
+export class DeadCodeAnalyzer {
+  public constructor(
+    private semantic: Semantic,
+    private reporter: DiagnosticReporter,
+  ) {}
+
+  public analyze(ast: Program): Program {
+    const new_ast = {
+      kind: "Program",
+      value: "null",
+      type: "null",
+      body: [],
+      loc: ast.loc,
+    } as Program;
+
+    for (const expr of ast.body!) {
+      const validate = this.check(expr);
+      if (validate == null) continue;
+      new_ast.body!.push(validate);
+    }
+
+    return new_ast;
+  }
+
+  private check(expr: Expr | Stmt): Expr | Stmt | null {
+    switch (expr.kind) {
+      case "VariableDeclaration":
+        return this.checkVarDeclaration(expr as VariableDeclaration);
+      default:
+        return expr;
+    }
+  }
+
+  private checkVarDeclaration(
+    varDecl: VariableDeclaration,
+  ): VariableDeclaration | null {
+    if (this.semantic.identifiersUsed.has(varDecl.id.value)) {
+      return varDecl;
+    }
+
+    this.reporter.addWarning(varDecl.loc, "Unused variable declaration", [
+      this.reporter.makeSuggestion("Remove unused variable declaration"),
+    ]);
+
+    return null;
+  }
+}

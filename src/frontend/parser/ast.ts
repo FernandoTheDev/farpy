@@ -2,25 +2,20 @@ import { Loc } from "../lexer/token.ts";
 import { TypesNative } from "../values.ts";
 
 export enum LLVMType {
-  // Tipos inteiros
-  I1 = "i1", // Booleano (1 bit)
+  I1 = "i1", // BOol (1 bit)
   I8 = "i8", // Byte (8 bits)
   I16 = "i16", // Short (16 bits)
   I32 = "i32", // Int (32 bits)
   I64 = "i64", // Long (64 bits)
 
-  // Tipos de ponto flutuante
-  FLOAT = "float", // Float de precisão simples (32 bits)
-  DOUBLE = "double", // Float de precisão dupla (64 bits)
+  FLOAT = "float",
+  DOUBLE = "double",
 
-  // Outros tipos
-  VOID = "void", // Tipo vazio
-  LABEL = "label", // Rótulo para saltos
-  PTR = "ptr", // Ponteiro genérico
+  VOID = "void",
+  LABEL = "label",
+  PTR = "ptr",
 
-  // Arrays e Structs geralmente são representados de forma mais complexa
-  // mas podemos ter tipos comuns como:
-  STRING = "i8*", // String é um ponteiro para i8 em LLVM
+  STRING = "i8*",
 }
 
 export type NodeType =

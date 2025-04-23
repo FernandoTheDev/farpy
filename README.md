@@ -60,6 +60,10 @@ Ensure that all tools are available in your system `PATH`.
    ```bash
    ./a.out
    ```
+6. **See how to use compiler flags**
+   ```bash
+   ./farpy --h
+   ```
 
 ## Contributing
 
