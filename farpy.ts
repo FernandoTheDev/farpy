@@ -14,6 +14,9 @@ import { LLVMIRGenerator } from "./src/middle/llvm_ir_gen.ts";
 import { FarpyCompiler } from "./src/backend/compiler.ts";
 import { DiagnosticReporter } from "./src/error/diagnosticReporter.ts";
 import { Token } from "./src/frontend/lexer/token.ts";
+import { Optimizer } from "./src/middle/optimizer.ts";
+import { Program } from "./src/frontend/parser/ast.ts";
+import { DeadCodeAnalyzer } from "./src/middle/dead_code_analyzer.ts";
 
 const ARG_CONFIG = {
   alias: {
@@ -23,13 +26,65 @@ const ARG_CONFIG = {
     astjs: "ast-json-save",
     o: "output",
     eir: "emit-llvm-ir",
+    opt: "optimize",
   },
-  boolean: ["help", "version", "ast-json", "debug", "emit-llvm-ir"],
-  string: ["ast-json-save", "output"],
+  boolean: [
+    "help",
+    "version",
+    "ast-json",
+    "debug",
+    "emit-llvm-ir",
+    "targeth",
+    "optmize",
+  ],
+  string: ["ast-json-save", "output", "target"],
   default: { "ast-json-save": "ast.json", "output": "a.out" },
 };
 
 const VERSION = "alpha 0.0.1";
+
+const TARGET_HELP_MESSAGE = `Farpy Compiler - Target Architecture Help
+
+Supports the following target architectures:
+     x86_64-linux-gnu              - 64-bit x86, Linux
+     i386-linux-gnu                - 32-bit x86, Linux
+     aarch64-linux-gnu             - ARM 64-bit, Linux
+     arm-linux-gnueabi             - ARM 32-bit (EABI), Linux
+     armv7-linux-gnueabihf         - ARM 32-bit (hard-float ABI), Linux
+     x86_64-apple-macosx           - 64-bit Intel, macOS
+     arm64-apple-macosx            - ARM64 (Apple Silicon), macOS
+     i386-apple-macosx             - 32-bit Intel, macOS (deprecated, but still supported for compatibility)
+     armv7-apple-ios               - ARM 32-bit, iOS (for older devices)
+     arm64-apple-ios               - ARM 64-bit, iOS (Apple Silicon)
+     x86_64-pc-windows-gnu         - 64-bit x86, Windows with GNU tools (MinGW)
+     x86_64-w64-mingw32            - 64-bit x86, Windows (MinGW toolchain)
+     i386-pc-windows-gnu           - 32-bit x86, Windows with GNU tools
+     arm64-pc-windows-msvc         - ARM 64-bit, Windows (MSVC toolchain)
+     x86_64-pc-windows-msvc        - 64-bit x86, Windows (MSVC toolchain)
+     armv7a-linux-androideabi      - ARM 32-bit, Android
+     aarch64-linux-android         - ARM 64-bit, Android
+     x86_64-linux-android          - 64-bit Intel, Android
+     i686-linux-android            - 32-bit Intel, Android
+     arm64-apple-ios               - ARM 64-bit, iOS
+     armv7-apple-ios               - ARM 32-bit, iOS (for older devices)
+     x86_64-apple-ios-simulator    - Intel 64-bit, iOS simulator (for development)
+     arm64-apple-ios-simulator     - ARM 64-bit, iOS simulator (for Apple Silicon)
+     wasm32-unknown-unknown        - WebAssembly 32-bit
+     wasm64-unknown-unknown        - WebAssembly 64-bit
+     armv6-unknown-linux-gnueabi   - ARMv6, Linux (like Raspberry Pi 1)
+     armv7-unknown-linux-gnueabihf - ARMv7, Linux (like Raspberry Pi 2/3)
+     aarch64-unknown-linux-gnu     - ARM64, Linux (like Raspberry Pi 4)
+     x86_64-unknown-freebsd        - 64-bit x86, FreeBSD
+     i386-unknown-freebsd          - 32-bit x86, FreeBSD
+     aarch64-unknown-freebsd       - ARM 64-bit, FreeBSD
+     powerpc64-linux-gnu           - PowerPC 64-bit, Linux
+     ppc64le-linux-gnu             - PowerPC 64-bit little-endian, Linux
+     powerpc-apple-darwin          - PowerPC, macOS (for older versions)
+     mips64el-linux-gnuabi64       - MIPS 64-bit little-endian, Linux
+     mipsel-linux-gnu              - MIPS 32-bit little-endian, Linux
+     sparc64-linux-gnu             - SPARC 64-bit, Linux
+     riscv64-unknown-linux-gnu     - RISC-V 64-bit, Linux
+     s390x-linux-gnu               - IBM Z (formerly System z), Linux`;
 
 const HELP_MESSAGE = `Farpy Compiler ${VERSION}
 
@@ -42,8 +97,11 @@ OPTIONS:
   --ast-json              Output AST as JSON and exit
   --ast-json-save=<file>  Save AST JSON to specified file (default: ast.json)
   -o, --output=<file>     Specify output file name (default: a.out)
+  --opt, --optimize       Enable optimization in AST
   --debug                 Enable debug mode
-  --emit-llvm-ir          Output LLVM IR and exit`;
+  --emit-llvm-ir          Output LLVM IR and exit
+  --target=<target>       Specify target architecture (default: your architecture)
+  --targeth           Show target architecture help`;
 
 class FarpyCompilerMain {
   private fileName: string;
@@ -54,6 +112,11 @@ class FarpyCompilerMain {
   constructor(args: string[]) {
     this.args = parseArgs(args, ARG_CONFIG);
     this.reporter = new DiagnosticReporter();
+
+    if (this.shouldShowTargetHelp()) {
+      this.showTargetHelp();
+      Deno.exit(0);
+    }
 
     if (this.shouldShowHelp()) {
       this.showHelp();
@@ -72,6 +135,18 @@ class FarpyCompilerMain {
     }
 
     this.fileData = Deno.readTextFileSync(this.fileName);
+  }
+
+  private shouldShowTargetHelp(): boolean {
+    return this.args.targeth === true;
+  }
+
+  private showTargetHelp(): void {
+    console.log(TARGET_HELP_MESSAGE);
+  }
+
+  private shouldOptimize(): boolean {
+    return this.args.optimize === true;
   }
 
   private shouldShowHelp(): boolean {
@@ -140,9 +215,23 @@ class FarpyCompilerMain {
     return false;
   }
 
-  private runSemanticAnalysis(ast: any): any {
-    const semantic = Semantic.getInstance();
-    return semantic.semantic(ast);
+  private runDeadCodeAnalyzer(ast: Program, semantic: Semantic): any {
+    const analyzer = new DeadCodeAnalyzer(semantic, this.reporter).analyze(
+      semantic.semantic(ast),
+    );
+
+    if (this.reporter.hasWarnings() && !this.reporter.hasErrors()) {
+      this.reporter.printDiagnostics();
+      console.log(this.reporter.getSummary());
+    }
+
+    if (this.reporter.hasErrors()) {
+      this.reporter.printDiagnostics();
+      console.log(this.reporter.getSummary());
+      return null;
+    }
+
+    return analyzer;
   }
 
   private generateLLVMIR(semanticAST: any, semantic: any): string {
@@ -161,12 +250,14 @@ class FarpyCompilerMain {
   private async runBackendCompilation(
     llvmIR: string,
     semantic: any,
+    target: string = "",
   ): Promise<void> {
     const compiler = new FarpyCompiler(
       llvmIR,
       this.args["output"],
       semantic,
       this.args["debug"],
+      target,
     );
     await compiler.compile();
   }
@@ -182,13 +273,28 @@ class FarpyCompilerMain {
       if (this.handleAstJson(ast)) return;
 
       const semantic = Semantic.getInstance();
-      const semanticAST = this.runSemanticAnalysis(ast);
+      let final_ast = this.runDeadCodeAnalyzer(ast, semantic);
 
-      const llvmIR = this.generateLLVMIR(semanticAST, semantic);
+      // console.log(final_ast);
+      // Deno.exit();
+
+      if (this.shouldOptimize()) {
+        const optmizer = new Optimizer();
+        final_ast = optmizer.resume(final_ast);
+      }
+
+      const llvmIR = this.generateLLVMIR(
+        final_ast,
+        semantic,
+      );
 
       if (this.handleEmitIR(llvmIR)) return;
 
-      await this.runBackendCompilation(llvmIR, semantic);
+      await this.runBackendCompilation(
+        llvmIR,
+        semantic,
+        this.args.target ?? "",
+      );
     } catch (error: any) {
       console.error("Compilation failed:", error.message);
       if (this.args["debug"]) {

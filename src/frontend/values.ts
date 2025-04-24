@@ -17,6 +17,7 @@ export type TypesNative =
   | "bool"
   | "null"
   | "float"
+  | "double"
   | "binary"
   | "void";
 // GenericType;
@@ -28,6 +29,7 @@ export const TypesNativeArray: string[] = [
   "bool",
   "null",
   "float",
+  "double",
   "binary",
   "void",
 ];
