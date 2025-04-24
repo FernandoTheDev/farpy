@@ -6,8 +6,10 @@ import {
   BinaryLiteral,
   Expr,
   FloatLiteral,
+  FunctionDeclaration,
   IntLiteral,
   Program,
+  ReturnStatement,
   Stmt,
   StringLiteral,
 } from "../frontend/parser/ast.ts";
@@ -35,11 +37,15 @@ export class Optimizer {
         return this.optimizeBinaryExpr(expr as BinaryExpr);
       case "VariableDeclaration":
         return this.optimizeVariableDeclaration(expr as any);
+      case "FunctionDeclaration":
+        return this.optimizeFnDeclaration(expr as FunctionDeclaration);
       case "CallExpr":
         return this.optimizeCallExpr(expr as any);
       case "IncrementExpr":
       case "DecrementExpr":
         return this.optimizeUnaryExpr(expr as any);
+      case "ReturnStatement":
+        return this.optimizeReturnStatement(expr as ReturnStatement);
       case "IntLiteral":
       case "FloatLiteral":
       case "StringLiteral":
@@ -52,6 +58,26 @@ export class Optimizer {
         console.warn("Unknown expression kind in optimizer: " + expr.kind);
         return expr;
     }
+  }
+
+  private optimizeReturnStatement(
+    retStatement: ReturnStatement,
+  ): ReturnStatement {
+    retStatement.expr = this.optimize(retStatement.expr);
+    return retStatement;
+  }
+
+  private optimizeFnDeclaration(
+    fnDecl: FunctionDeclaration,
+  ): FunctionDeclaration {
+    const body = fnDecl.block;
+    fnDecl.block = [];
+
+    for (const expr of body) {
+      fnDecl.block.push(this.optimize(expr));
+    }
+
+    return fnDecl;
   }
 
   private optimizeVariableDeclaration(varDecl: any): any {

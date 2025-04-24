@@ -2,7 +2,7 @@ import { Loc } from "../lexer/token.ts";
 import { TypesNative } from "../values.ts";
 
 export enum LLVMType {
-  I1 = "i1", // BOol (1 bit)
+  I1 = "i1", // Bool (1 bit)
   I8 = "i8", // Byte (8 bits)
   I16 = "i16", // Short (16 bits)
   I32 = "i32", // Int (32 bits)
@@ -31,6 +31,8 @@ export type NodeType =
   | "VariableDeclaration"
   | "CallExpr"
   | "ImportStatement"
+  | "FunctionDeclaration"
+  | "ReturnStatement"
   | "NullLiteral";
 
 export interface Stmt {
@@ -171,4 +173,24 @@ export interface ImportStatement extends Stmt {
   kind: "ImportStatement";
   path: StringLiteral;
   isStdLib: boolean;
+}
+
+export interface FunctionArgs {
+  id: Identifier;
+  type: TypesNative | TypesNative[];
+  default?: Expr;
+  llvmType?: LLVMType;
+}
+
+export interface FunctionDeclaration extends Stmt {
+  kind: "FunctionDeclaration";
+  type: TypesNative | TypesNative[];
+  args: FunctionArgs[];
+  id: Identifier;
+  block: Stmt[];
+}
+
+export interface ReturnStatement extends Stmt {
+  kind: "ReturnStatement";
+  expr: Expr;
 }

@@ -275,6 +275,9 @@ class FarpyCompilerMain {
       const semantic = Semantic.getInstance();
       let final_ast = this.runDeadCodeAnalyzer(ast, semantic);
 
+      // console.log(final_ast);
+      // Deno.exit();
+
       if (this.shouldOptimize()) {
         const optmizer = new Optimizer();
         final_ast = optmizer.resume(final_ast);

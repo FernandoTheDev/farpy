@@ -338,7 +338,7 @@ export class DiagnosticReporter {
     }
 
     const errorText = errorCount === 1 ? "error" : "errors";
-    const warningText = warningCount === 1 ? "waning" : "warnings";
+    const warningText = warningCount === 1 ? "warning" : "warnings";
 
     const summaryPrefix = this.options.colored
       ? `${colors.bold}${colors.white}Found:${colors.reset} `

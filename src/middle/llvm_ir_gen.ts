@@ -4,11 +4,13 @@ import {
   CallExpr,
   Expr,
   FloatLiteral,
+  FunctionDeclaration,
   Identifier,
   IntLiteral,
   LLVMType,
   NullLiteral,
   Program,
+  ReturnStatement,
   Stmt,
   StringLiteral,
   VariableDeclaration,
@@ -20,7 +22,7 @@ import {
   LLVMFunction,
   LLVMModule,
 } from "../ts-ir/index.ts";
-import { Semantic } from "./semantic.ts";
+import { Function, Semantic, StdLibFunction } from "./semantic.ts";
 
 export class LLVMIRGenerator {
   private static instance: LLVMIRGenerator;
@@ -100,6 +102,8 @@ export class LLVMIRGenerator {
           node as VariableDeclaration,
           entry,
         );
+      case "FunctionDeclaration":
+        return this.generateFnDeclaration(node as FunctionDeclaration, entry);
       case "StringLiteral":
         return this.generateStringLiteral(node as StringLiteral, entry);
       case "IntLiteral":
@@ -114,6 +118,8 @@ export class LLVMIRGenerator {
         return this.generateCallExpr(node as CallExpr, entry);
       case "ImportStatement":
         return this.makeIrValue("0", "i32");
+      case "ReturnStatement":
+        return this.makeReturnStatement(node as ReturnStatement, entry);
       default:
         throw new Error(
           `Unsupported node kind for IR generation: ${node.kind}`,
@@ -121,13 +127,95 @@ export class LLVMIRGenerator {
     }
   }
 
+  private makeReturnStatement(
+    node: ReturnStatement,
+    entry: LLVMBasicBlock,
+  ): IRValue {
+    const expr = this.generateNode(node.expr, entry);
+    entry.retInst(expr);
+    return expr;
+  }
+
+  private generateFnDeclaration(
+    node: FunctionDeclaration,
+    _entry: LLVMBasicBlock,
+  ): IRValue {
+    const funcName = node.id.value;
+    const getFunc = this.instance.availableFunctions
+      .get(funcName);
+
+    const outerVariables = new Map(this.variables);
+
+    const params = node.args.map((arg) => ({
+      name: arg.id.value,
+      type: arg.llvmType!,
+    }));
+
+    const func = new LLVMFunction(funcName, node.llvmType!, params);
+    const funcEntry = func.createBasicBlock("entry");
+
+    for (
+      const arg of getFunc?.params! as {
+        name: string;
+        type: string;
+        llvmType: string;
+      }[]
+    ) {
+      const argName = arg.name;
+      const argType = arg.llvmType!;
+
+      const alloca = funcEntry.allocaInst(argType);
+
+      funcEntry.storeInst(
+        { value: `%${argName}`, type: argType },
+        alloca,
+      );
+
+      this.variables.set(argName, alloca);
+    }
+
+    let haveReturn = false;
+
+    try {
+      for (const stmt of node.block) {
+        this.generateNode(stmt, funcEntry);
+        if (stmt.kind == "ReturnStatement") {
+          haveReturn = true;
+          break;
+        }
+      }
+    } catch (error) {
+      throw error;
+    }
+
+    if (!haveReturn) {
+      if (node.llvmType === "void") {
+        funcEntry.retVoid();
+      } else {
+        funcEntry.retInst({
+          value: "0",
+          type: node.llvmType!,
+        });
+      }
+    }
+
+    this.variables = outerVariables;
+
+    this.module.addFunction(func);
+    return { value: "0", type: "i32" } as IRValue;
+  }
+
   private generateCallExpr(node: CallExpr, entry: LLVMBasicBlock): IRValue {
     const funcName = node.callee.value;
-    const funcInfo = this.instance.availableFunctions.get(funcName);
+    let funcInfo = this.instance.availableFunctions
+      .get(funcName);
 
+    funcInfo = funcInfo as StdLibFunction;
     if (!this.declaredFuncs.has(funcName)) {
       this.declaredFuncs.add(funcName);
-      if (funcInfo) this.module.addExternal(funcInfo!.ir as string);
+      if (funcInfo && (funcInfo as StdLibFunction).isStdLib != undefined) {
+        this.module.addExternal(funcInfo!.ir as string);
+      }
     }
 
     const actualFuncName = funcInfo && funcInfo.isStdLib
@@ -143,12 +231,20 @@ export class LLVMIRGenerator {
       argsTypes.push(argValue.type);
     }
 
-    return entry.callInst(
-      funcInfo!.returnType,
-      actualFuncName,
+    const returnValue = entry.callInst(
+      funcInfo.llvmType,
+      actualFuncName as string,
       args,
       argsTypes,
     );
+
+    // If this is a void function, handle it appropriately
+    if (funcInfo?.returnType === "void") {
+      // Don't use the return value
+      return this.makeIrValue("0", "i32"); // Return a dummy value for IR generation
+    }
+
+    return returnValue;
   }
 
   private generateBinaryExpr(expr: BinaryExpr, entry: LLVMBasicBlock): IRValue {

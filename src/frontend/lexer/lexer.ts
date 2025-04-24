@@ -268,47 +268,47 @@ export class Lexer {
       return;
     }
 
-    if (this.source[this.offset] === "*") {
-      this.offset++;
-      while (
-        this.offset < this.source.length &&
-        !(this.source[this.offset] === "*" &&
-          this.source[this.offset + 1] === "/")
-      ) {
-        if (this.source[this.offset] === "\n") {
-          this.line++;
-          this.lineOffset = this.offset + 1;
-        }
-        this.offset++;
-      }
-      if (this.offset < this.source.length) {
-        this.offset += 2;
-      } else {
-        this.reporter.addError(
-          this.makeLocation(this.source[next - 1], init_line),
-          "Unclosed block comment",
-          [
-            this.reporter.makeSuggestion(
-              "Close the comment block.",
-              "Add '*/' at the end.",
-            ),
-          ],
-        );
-        throw new Error("Unclosed block comment");
-      }
-      return;
-    }
+    // if (this.source[this.offset] === "*") {
+    //   this.offset++;
+    //   while (
+    //     this.offset < this.source.length &&
+    //     !(this.source[this.offset] === "*" &&
+    //       this.source[this.offset + 1] === "/")
+    //   ) {
+    //     if (this.source[this.offset] === "\n") {
+    //       this.line++;
+    //       this.lineOffset = this.offset + 1;
+    //     }
+    //     this.offset++;
+    //   }
+    //   if (this.offset < this.source.length) {
+    //     this.offset += 2;
+    //   } else {
+    //     this.reporter.addError(
+    //       this.makeLocation(this.source[next - 1], init_line),
+    //       "Unclosed block comment",
+    //       [
+    //         this.reporter.makeSuggestion(
+    //           "Close the comment block.",
+    //           "Add '*/' at the end.",
+    //         ),
+    //       ],
+    //     );
+    //     throw new Error("Unclosed block comment");
+    //   }
+    //   return;
+    // }
 
-    this.reporter.addError(
-      this.makeLocation(this.source[next]),
-      "Unexpected character after '/'",
-      [
-        this.reporter.makeSuggestion(
-          "Remove the character and see if the error is resolved.",
-        ),
-      ],
-    );
-    throw new Error("Unexpected character after '/'");
+    // this.reporter.addError(
+    //   this.makeLocation(this.source[next]),
+    //   "Unexpected character after '/'",
+    //   [
+    //     this.reporter.makeSuggestion(
+    //       "Remove the character and see if the error is resolved.",
+    //     ),
+    //   ],
+    // );
+    // throw new Error("Unexpected character after '/'");
   }
 
   private isAlphaNumeric(token: string): boolean {

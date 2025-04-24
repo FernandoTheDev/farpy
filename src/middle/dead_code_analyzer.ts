@@ -1,6 +1,7 @@
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import {
   Expr,
+  FunctionDeclaration,
   Program,
   Stmt,
   VariableDeclaration,
@@ -35,9 +36,25 @@ export class DeadCodeAnalyzer {
     switch (expr.kind) {
       case "VariableDeclaration":
         return this.checkVarDeclaration(expr as VariableDeclaration);
+      case "FunctionDeclaration":
+        return this.checkFnDeclaration(expr as FunctionDeclaration);
       default:
         return expr;
     }
+  }
+
+  private checkFnDeclaration(
+    fnDecl: FunctionDeclaration,
+  ): FunctionDeclaration | null {
+    if (this.semantic.identifiersUsed.has(fnDecl.id.value)) {
+      return fnDecl;
+    }
+
+    this.reporter.addWarning(fnDecl.id.loc, "Unused function declaration", [
+      this.reporter.makeSuggestion("Remove unused function declaration"),
+    ]);
+
+    return null;
   }
 
   private checkVarDeclaration(

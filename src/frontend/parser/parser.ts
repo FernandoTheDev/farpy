@@ -1,4 +1,4 @@
-import { TypesNative } from "../values.ts";
+import { TypesNative, TypesNativeArray } from "../values.ts";
 import { Loc, Token, TokenType } from "../lexer/token.ts";
 import {
   AST_FLOAT,
@@ -9,8 +9,12 @@ import {
   BinaryExpr,
   CallExpr,
   Expr,
+  FunctionArgs,
+  FunctionDeclaration,
+  Identifier,
   ImportStatement,
   Program,
+  ReturnStatement,
   Stmt,
   VariableDeclaration,
 } from "./ast.ts";
@@ -111,6 +115,10 @@ export class Parser {
         return this.parseNewExpression();
       case TokenType.IMPORT:
         return this.parseImportStatement();
+      case TokenType.RETURN:
+        return this.parseReturnStatement();
+      case TokenType.FN:
+        return this.parseFnStatement();
       case TokenType.IDENTIFIER: {
         const name = token.value!.toString();
         if (this.peek().kind === TokenType.LPAREN) {
@@ -132,7 +140,125 @@ export class Parser {
     }
   }
 
-  private parseNewExpression(): Expr {
+  private parseFnStatement(): FunctionDeclaration {
+    const start = this.previous();
+    const id = this.consume(
+      TokenType.IDENTIFIER,
+      "Expect identifier to function name.",
+    );
+
+    // Parse arguments
+    const args = this.parse_function_arguments();
+
+    // Parse optional return type
+    let returnType: TypesNative | TypesNative[] = "void"; // Default return type
+    if (this.match(TokenType.COLON)) {
+      // Parse return type (supporting union types)
+      const returnTypes: TypesNative[] = [];
+      const firstTypeToken = this.consume(
+        TokenType.IDENTIFIER,
+        "Expected return type.",
+      );
+      returnTypes.push(firstTypeToken.value as TypesNative);
+
+      while (this.peek().kind === TokenType.PIPE) {
+        this.advance(); // Skip |
+        const typeToken = this.consume(
+          TokenType.IDENTIFIER,
+          "Expected type after '|'.",
+        );
+        returnTypes.push(typeToken.value as TypesNative);
+      }
+
+      returnType = returnTypes.length === 1 ? returnTypes[0] : returnTypes;
+    }
+
+    this.consume(TokenType.LBRACE, "Expect '{' before function body.");
+    const body: Stmt[] = [];
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      body.push(this.parseExpression(Precedence.LOWEST));
+    }
+    const end = this.consume(
+      TokenType.RBRACE,
+      "Expect '}' after function body.",
+    );
+
+    return {
+      kind: "FunctionDeclaration",
+      id: AST_IDENTIFIER(id.value as string, id.loc),
+      args: args,
+      type: returnType,
+      block: body,
+      loc: this.makeLoc(start.loc, end.loc),
+    } as FunctionDeclaration;
+  }
+
+  private parse_function_arguments(): FunctionArgs[] {
+    const args: FunctionArgs[] = [];
+    this.consume(
+      TokenType.LPAREN,
+      "Expect '(' after function name.",
+    );
+
+    while (this.peek().kind !== TokenType.RPAREN) {
+      const argToken: Token = this.consume(
+        TokenType.IDENTIFIER,
+        "Expected ID for argument name.",
+      );
+      const argId: Identifier = AST_IDENTIFIER(
+        argToken.value as string,
+        argToken.loc,
+      );
+
+      let argType: TypesNative | TypesNative[] = "id";
+      let defaultValue: Expr | undefined = undefined;
+
+      this.consume(TokenType.COLON, "Expect ':' after argument name.");
+      // Parse argument type (supporting union types)
+      const argTypes: TypesNative[] = [];
+      const firstTypeToken = this.consume(
+        TokenType.IDENTIFIER,
+        "Expected type for argument.",
+      );
+      argTypes.push(firstTypeToken.value as TypesNative);
+
+      while (this.peek().kind === TokenType.PIPE) {
+        this.advance(); // Skip '|'
+        const typeToken = this.consume(
+          TokenType.IDENTIFIER,
+          "Expected type after '|'.",
+        );
+        argTypes.push(typeToken.value as TypesNative);
+      }
+
+      argType = argTypes.length === 1 ? argTypes[0] : argTypes;
+
+      if (this.match(TokenType.EQUALS)) {
+        defaultValue = this.parseExpression(Precedence.LOWEST);
+      }
+
+      args.push({
+        id: argId,
+        type: argType,
+        default: defaultValue,
+      });
+
+      if (this.peek().kind === TokenType.COMMA) {
+        this.advance(); // skip ','
+      } else if (this.peek().kind !== TokenType.RPAREN) {
+        this.reporter.addError(
+          this.peek().loc,
+          "Expected ',' or ')' after argument.",
+        );
+        throw new Error("Expected ',' or ')' after argument.");
+      }
+    }
+
+    this.consume(TokenType.RPAREN, "Expected ')' after arguments.");
+    return args;
+  }
+
+  private parseNewExpression(): VariableDeclaration {
     const start = this.previous();
     const mutable: boolean = this.match(TokenType.MUT);
     const id = this.consume(
@@ -153,6 +279,16 @@ export class Parser {
       mutable: mutable,
       loc: loc,
     } as VariableDeclaration;
+  }
+
+  private parseReturnStatement(): ReturnStatement {
+    const expr = this.parseExpression(Precedence.LOWEST);
+
+    return {
+      kind: "ReturnStatement",
+      expr: expr,
+      loc: this.makeLoc(this.previous().loc, expr.loc),
+    } as ReturnStatement;
   }
 
   private parseImportStatement(): ImportStatement {

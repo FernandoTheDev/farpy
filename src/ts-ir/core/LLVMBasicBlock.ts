@@ -164,6 +164,10 @@ export class LLVMBasicBlock {
     this.add(`ret ${value.type} ${value.value}`);
   }
 
+  public retVoid(): void {
+    this.add(`ret void`);
+  }
+
   // Memory e ponteiros
   public allocaInst(varType: string = "i32"): IRValue {
     const tmp = this.nextTemp();

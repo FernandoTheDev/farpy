@@ -1,4 +1,11 @@
-import { CallExpr, ImportStatement, LLVMType } from "../frontend/parser/ast.ts";
+import {
+  CallExpr,
+  FunctionArgs,
+  FunctionDeclaration,
+  ImportStatement,
+  LLVMType,
+  ReturnStatement,
+} from "../frontend/parser/ast.ts";
 import {
   BinaryExpr,
   DecrementExpr,
@@ -20,14 +27,23 @@ interface SymbolInfo {
   loc: any;
 }
 
-interface StdLibFunction {
+export interface StdLibFunction {
   name: string;
   returnType: string;
   params: string[];
   isVariadic: boolean;
-  llvmName: string;
-  ir: string;
-  isStdLib: boolean;
+  llvmName?: string;
+  ir?: string;
+  isStdLib?: boolean;
+  llvmType: LLVMType;
+}
+
+export interface Function {
+  name: string;
+  returnType: TypesNative | TypesNative[];
+  params: { name: string; type: string; llvmType: string }[];
+  isVariadic: boolean;
+  llvmType: LLVMType;
 }
 
 interface StdLibModule {
@@ -45,10 +61,12 @@ const stdLibModules = new Map<string, StdLibModule>();
 function initializeStdLibs() {
   const ioModule: StdLibModule = {
     name: "io",
+    // @ts-ignore
     functions: new Map([
       ["print", {
         name: "print",
         returnType: "void",
+        llvmType: "void",
         params: ["string"],
         isVariadic: false,
         llvmName: "print",
@@ -57,7 +75,8 @@ function initializeStdLibs() {
       }],
       ["printf", {
         name: "printf",
-        returnType: "i32",
+        returnType: "int",
+        llvmType: "i32",
         params: ["string"],
         isVariadic: true,
         llvmName: "printf",
@@ -66,7 +85,8 @@ function initializeStdLibs() {
       }],
       ["scanf", {
         name: "scanf",
-        returnType: "i32",
+        returnType: "int",
+        llvmType: "i32",
         params: ["string"],
         isVariadic: true,
         llvmName: "scanf",
@@ -78,10 +98,12 @@ function initializeStdLibs() {
 
   const mathModule: StdLibModule = {
     name: "math",
+    // @ts-ignore
     functions: new Map([
       ["sin", {
         name: "sin",
         returnType: "double",
+        llvmType: "double",
         params: ["double"],
         isVariadic: false,
         llvmName: "sin",
@@ -92,6 +114,7 @@ function initializeStdLibs() {
       ["cos", {
         name: "cos",
         returnType: "double",
+        llvmType: "double",
         params: ["double"],
         isVariadic: false,
         llvmName: "cos",
@@ -102,6 +125,7 @@ function initializeStdLibs() {
       ["log", {
         name: "log",
         returnType: "double",
+        llvmType: "double",
         params: ["double"],
         isVariadic: false,
         llvmName: "log",
@@ -112,6 +136,7 @@ function initializeStdLibs() {
       ["exp", {
         name: "exp",
         returnType: "double",
+        llvmType: "double",
         params: ["double"],
         isVariadic: false,
         llvmName: "exp",
@@ -122,6 +147,7 @@ function initializeStdLibs() {
       ["sqrt", {
         name: "sqrt",
         returnType: "double",
+        llvmType: "double",
         params: ["double"],
         isVariadic: false,
         llvmName: "sqrt",
@@ -132,6 +158,7 @@ function initializeStdLibs() {
       ["pi", {
         name: "pi",
         returnType: "double",
+        llvmType: "double",
         params: [],
         isVariadic: false,
         llvmName: "pi",
@@ -142,6 +169,7 @@ function initializeStdLibs() {
       ["e", {
         name: "e",
         returnType: "double",
+        llvmType: "double",
         params: [],
         isVariadic: false,
         llvmName: "e",
@@ -160,7 +188,7 @@ export class Semantic {
   private scopeStack: Map<string, SymbolInfo>[] = [];
   private errors: string[] = [];
   private typeMap: Map<TypesNative | string, LLVMType> = new Map();
-  public availableFunctions: Map<string, StdLibFunction> = new Map();
+  public availableFunctions: Map<string, StdLibFunction | Function> = new Map();
   public importedModules: Set<string> = new Set();
   public identifiersUsed: Set<string> = new Set();
 
@@ -235,6 +263,9 @@ export class Semantic {
       case "ImportStatement":
         analyzedNode = this.analyzeImportStatement(node as ImportStatement);
         break;
+      case "ReturnStatement":
+        analyzedNode = this.analyzeReturnStatement(node as ReturnStatement);
+        break;
       case "CallExpr":
         analyzedNode = this.analyzeCallExpr(node as CallExpr);
         break;
@@ -248,6 +279,9 @@ export class Semantic {
         analyzedNode = this.analyzeVariableDeclaration(
           node as VariableDeclaration,
         );
+        break;
+      case "FunctionDeclaration":
+        analyzedNode = this.analyzeFnDeclaration(node as FunctionDeclaration);
         break;
       case "IncrementExpr":
         analyzedNode = this.analyzeIncrementExpr(node as IncrementExpr);
@@ -292,6 +326,106 @@ export class Semantic {
     };
   }
 
+  private analyzeFnDeclaration(node: FunctionDeclaration): FunctionDeclaration {
+    const funcName = node.id.value;
+
+    if (this.availableFunctions.has(funcName)) {
+      throw new Error(`Function '${funcName}' is already defined.`);
+    }
+
+    this.pushScope();
+
+    const analyzedArgs: FunctionArgs[] = [];
+    for (const arg of node.args) {
+      if (this.currentScope().has(arg.id.value)) {
+        throw new Error(
+          `Parameter '${arg.id.value}' is already defined in function '${funcName}' at ${arg.id.loc.line}:${arg.id.loc.start}`,
+        );
+      }
+
+      const llvmType = this.mapToLLVMType(arg.type);
+      arg.llvmType = llvmType;
+
+      this.defineSymbol({
+        id: arg.id.value,
+        sourceType: arg.type,
+        llvmType: llvmType,
+        mutable: true,
+        initialized: true,
+        loc: arg.id.loc,
+      });
+
+      analyzedArgs.push({
+        ...arg,
+      });
+    }
+
+    const returnType = node.type || "void";
+    const returnLLVMType = this.mapToLLVMType(returnType);
+
+    const funcInfo = {
+      name: funcName,
+      params: node.args.map((arg) => ({
+        name: arg.id.value,
+        type: arg.type,
+        llvmType: this.mapToLLVMType(arg.type),
+      })),
+      returnType: returnType,
+      llvmType: returnLLVMType,
+      isVariadic: false,
+      loc: node.loc,
+    };
+    this.availableFunctions.set(funcName, funcInfo as Function);
+
+    const analyzedBlock: Stmt[] = [];
+    let hasReturn = false;
+
+    for (const stmt of node.block) {
+      const analyzedStmt = this.analyzeNode(stmt) as Stmt;
+      analyzedBlock.push(analyzedStmt);
+
+      if (analyzedStmt.kind === "ReturnStatement") {
+        hasReturn = true;
+
+        const returnExpr = (analyzedStmt as any).value;
+        if (returnExpr) {
+          const returnExprType = returnExpr.type;
+
+          if (
+            !this.areTypesCompatible(returnExprType, returnType) &&
+            returnType !== "void"
+          ) {
+            throw new Error(
+              `Function '${funcName}' returns '${returnExprType}' but is declared to return '${returnType}'`,
+            );
+          }
+        }
+      }
+    }
+
+    if (returnType !== "void" && !hasReturn) {
+      throw new Error(
+        `Function '${funcName}' is declared to return '${returnType}' but has no return statement`,
+      );
+    }
+
+    this.popScope();
+
+    return {
+      ...node,
+      args: analyzedArgs,
+      block: analyzedBlock,
+      type: returnType,
+      llvmType: returnLLVMType,
+    };
+  }
+
+  private analyzeReturnStatement(node: ReturnStatement): ReturnStatement {
+    node.expr = this.analyzeNode(node.expr);
+    node.llvmType = node.expr.llvmType;
+    return node;
+  }
+
   private analyzeImportStatement(node: ImportStatement): ImportStatement {
     if (!node.isStdLib) {
       return node;
@@ -315,6 +449,7 @@ export class Semantic {
         llvmName: funcInfo.llvmName,
         ir: funcInfo.ir,
         isStdLib: funcInfo.isStdLib,
+        llvmType: funcInfo.llvmType,
       });
     }
 
@@ -339,6 +474,12 @@ export class Semantic {
     }
 
     node.type = funcInfo.returnType as TypesNative;
+
+    if (
+      !this.identifiersUsed.has(funcInfo.name)
+    ) {
+      this.identifiersUsed.add(funcInfo.name);
+    }
 
     for (
       let i = 0;
