@@ -166,13 +166,11 @@ class FarpyCompilerMain {
   }
 
   private validateFile(): boolean {
-    return typeof this.fileName === "string" && this.fileName.length > 0;
+    return typeof this.fileName === "string" && this.fileName.length > 0 &&
+      this.fileName.endsWith(".fp");
   }
 
-  private runLexer(): Token[] | null {
-    const tokens = new Lexer(this.fileName, this.fileData, this.reporter)
-      .tokenize();
-
+  private checkErrorsAndWarnings(): boolean {
     if (this.reporter.hasWarnings() && !this.reporter.hasErrors()) {
       this.reporter.printDiagnostics();
       console.log(this.reporter.getSummary());
@@ -181,8 +179,17 @@ class FarpyCompilerMain {
     if (this.reporter.hasErrors()) {
       this.reporter.printDiagnostics();
       console.log(this.reporter.getSummary());
-      return null;
+      return false;
     }
+
+    return true;
+  }
+
+  private runLexer(): Token[] | null {
+    const tokens = new Lexer(this.fileName, this.fileData, this.reporter)
+      .tokenize();
+
+    if (!this.checkErrorsAndWarnings()) return null;
 
     return tokens as Token[];
   }
@@ -190,16 +197,7 @@ class FarpyCompilerMain {
   private runParser(tokens: Token[]): any {
     const ast = new Parser(tokens, this.reporter).parse();
 
-    if (this.reporter.hasWarnings() && !this.reporter.hasErrors()) {
-      this.reporter.printDiagnostics();
-      console.log(this.reporter.getSummary());
-    }
-
-    if (this.reporter.hasErrors()) {
-      this.reporter.printDiagnostics();
-      console.log(this.reporter.getSummary());
-      return null;
-    }
+    if (!this.checkErrorsAndWarnings()) return null;
 
     return ast;
   }
@@ -220,16 +218,7 @@ class FarpyCompilerMain {
       semantic.semantic(ast),
     );
 
-    if (this.reporter.hasWarnings() && !this.reporter.hasErrors()) {
-      this.reporter.printDiagnostics();
-      console.log(this.reporter.getSummary());
-    }
-
-    if (this.reporter.hasErrors()) {
-      this.reporter.printDiagnostics();
-      console.log(this.reporter.getSummary());
-      return null;
-    }
+    if (!this.checkErrorsAndWarnings()) return null;
 
     return analyzer;
   }
@@ -239,12 +228,8 @@ class FarpyCompilerMain {
     return llvmIrGen.generateIR(semanticAST, semantic, this.fileName);
   }
 
-  private handleEmitIR(llvmIR: string): boolean {
-    if (this.args["emit-llvm-ir"]) {
-      console.log(llvmIR);
-      return true;
-    }
-    return false;
+  private handleEmitIR(): boolean {
+    return this.args["emit-llvm-ir"] != "";
   }
 
   private async runBackendCompilation(
@@ -275,9 +260,6 @@ class FarpyCompilerMain {
       const semantic = Semantic.getInstance();
       let final_ast = this.runDeadCodeAnalyzer(ast, semantic);
 
-      // console.log(final_ast);
-      // Deno.exit();
-
       if (this.shouldOptimize()) {
         const optmizer = new Optimizer();
         final_ast = optmizer.resume(final_ast);
@@ -288,7 +270,14 @@ class FarpyCompilerMain {
         semantic,
       );
 
-      if (this.handleEmitIR(llvmIR)) return;
+      if (this.handleEmitIR()) {
+        await Deno.writeFile(
+          `${this.fileName.replace(".fp", ".ll")}`,
+          new TextEncoder().encode(llvmIR),
+        );
+
+        return;
+      }
 
       await this.runBackendCompilation(
         llvmIR,

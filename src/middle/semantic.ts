@@ -1,3 +1,4 @@
+import { Loc } from "../frontend/lexer/token.ts";
 import {
   CallExpr,
   FunctionArgs,
@@ -17,6 +18,14 @@ import {
   VariableDeclaration,
 } from "../frontend/parser/ast.ts";
 import { TypesNative } from "../frontend/values.ts";
+import { StandardLibrary } from "./standard_library.ts";
+import { Function, StdLibFunction } from "./std_lib_module_builder.ts";
+import { getTypeChecker, TypeChecker } from "./type_checker.ts";
+
+export interface TypeMapping {
+  sourceType: TypesNative | TypesNative[];
+  llvmType: LLVMType;
+}
 
 interface SymbolInfo {
   id: string;
@@ -24,189 +33,22 @@ interface SymbolInfo {
   llvmType: LLVMType;
   mutable: boolean;
   initialized: boolean;
-  loc: any;
-}
-
-export interface StdLibFunction {
-  name: string;
-  returnType: string;
-  params: string[];
-  isVariadic: boolean;
-  llvmName?: string;
-  ir?: string;
-  isStdLib?: boolean;
-  llvmType: LLVMType;
-}
-
-export interface Function {
-  name: string;
-  returnType: TypesNative | TypesNative[];
-  params: { name: string; type: string; llvmType: string }[];
-  isVariadic: boolean;
-  llvmType: LLVMType;
-}
-
-interface StdLibModule {
-  name: string;
-  functions: Map<string, StdLibFunction>;
-}
-
-export interface TypeMapping {
-  sourceType: TypesNative | TypesNative[];
-  llvmType: LLVMType;
-}
-
-const stdLibModules = new Map<string, StdLibModule>();
-
-function initializeStdLibs() {
-  const ioModule: StdLibModule = {
-    name: "io",
-    // @ts-ignore
-    functions: new Map([
-      ["print", {
-        name: "print",
-        returnType: "void",
-        llvmType: "void",
-        params: ["string"],
-        isVariadic: false,
-        llvmName: "print",
-        ir: "declare void @print(i8*)",
-        isStdLib: true,
-      }],
-      ["printf", {
-        name: "printf",
-        returnType: "int",
-        llvmType: "i32",
-        params: ["string"],
-        isVariadic: true,
-        llvmName: "printf",
-        ir: "declare i32 @printf(i8*, ...)",
-        isStdLib: true,
-      }],
-      ["scanf", {
-        name: "scanf",
-        returnType: "int",
-        llvmType: "i32",
-        params: ["string"],
-        isVariadic: true,
-        llvmName: "scanf",
-        ir: "declare i32 @scanf(i8*, ...)",
-        isStdLib: true,
-      }],
-    ]),
-  };
-
-  const mathModule: StdLibModule = {
-    name: "math",
-    // @ts-ignore
-    functions: new Map([
-      ["sin", {
-        name: "sin",
-        returnType: "double",
-        llvmType: "double",
-        params: ["double"],
-        isVariadic: false,
-        llvmName: "sin",
-        ir: "declare double @sin(double)",
-        isStdLib: true,
-      }],
-
-      ["cos", {
-        name: "cos",
-        returnType: "double",
-        llvmType: "double",
-        params: ["double"],
-        isVariadic: false,
-        llvmName: "cos",
-        ir: "declare double @cos(double)",
-        isStdLib: true,
-      }],
-
-      ["log", {
-        name: "log",
-        returnType: "double",
-        llvmType: "double",
-        params: ["double"],
-        isVariadic: false,
-        llvmName: "log",
-        ir: "declare double @log(double)",
-        isStdLib: true,
-      }],
-
-      ["exp", {
-        name: "exp",
-        returnType: "double",
-        llvmType: "double",
-        params: ["double"],
-        isVariadic: false,
-        llvmName: "exp",
-        ir: "declare double @exp(double)",
-        isStdLib: true,
-      }],
-
-      ["sqrt", {
-        name: "sqrt",
-        returnType: "double",
-        llvmType: "double",
-        params: ["double"],
-        isVariadic: false,
-        llvmName: "sqrt",
-        ir: "declare double @sqrt(double)",
-        isStdLib: true,
-      }],
-
-      ["pi", {
-        name: "pi",
-        returnType: "double",
-        llvmType: "double",
-        params: [],
-        isVariadic: false,
-        llvmName: "pi",
-        ir: "define double @pi() { ret double 3.141592653589793 }",
-        isStdLib: true,
-      }],
-
-      ["e", {
-        name: "e",
-        returnType: "double",
-        llvmType: "double",
-        params: [],
-        isVariadic: false,
-        llvmName: "e",
-        ir: "define double @e() { ret double 2.718281828459045 }",
-        isStdLib: true,
-      }],
-    ]),
-  };
-
-  stdLibModules.set("io", ioModule);
-  stdLibModules.set("math", mathModule);
+  loc: Loc;
 }
 
 export class Semantic {
   private static instance: Semantic;
   private scopeStack: Map<string, SymbolInfo>[] = [];
   private errors: string[] = [];
-  private typeMap: Map<TypesNative | string, LLVMType> = new Map();
+  private typeChecker: TypeChecker;
   public availableFunctions: Map<string, StdLibFunction | Function> = new Map();
   public importedModules: Set<string> = new Set();
   public identifiersUsed: Set<string> = new Set();
 
   private constructor() {
     this.pushScope();
-
-    this.typeMap.set("int", LLVMType.I32);
-    this.typeMap.set("i32", LLVMType.I32);
-    this.typeMap.set("float", LLVMType.DOUBLE);
-    this.typeMap.set("double", LLVMType.DOUBLE);
-    this.typeMap.set("string", LLVMType.STRING);
-    this.typeMap.set("bool", LLVMType.I1);
-    this.typeMap.set("binary", LLVMType.I32);
-    this.typeMap.set("null", LLVMType.PTR);
-    this.typeMap.set("id", LLVMType.PTR);
-    this.typeMap.set("void", LLVMType.VOID);
-
-    initializeStdLibs();
+    this.typeChecker = getTypeChecker();
+    StandardLibrary.getInstance(); // Initialize standard library
   }
 
   public static getInstance(): Semantic {
@@ -214,14 +56,6 @@ export class Semantic {
       Semantic.instance = new Semantic();
     }
     return Semantic.instance;
-  }
-
-  private mapToLLVMType(sourceType: TypesNative | TypesNative[]): LLVMType {
-    const llvmType = this.typeMap.get(sourceType as string);
-    if (!llvmType) {
-      throw new Error(`Unsupported type mapping for ${sourceType}`);
-    }
-    return llvmType;
   }
 
   public semantic(program: Program): Program {
@@ -296,7 +130,7 @@ export class Semantic {
       case "NullLiteral":
         analyzedNode = {
           ...node,
-          llvmType: this.mapToLLVMType(node.type),
+          llvmType: this.typeChecker.mapToLLVMType(node.type),
         };
         break;
       default:
@@ -304,8 +138,9 @@ export class Semantic {
     }
 
     if (!analyzedNode.llvmType) {
-      (analyzedNode as any).llvmType = this
-        .mapToLLVMType(analyzedNode.type);
+      (analyzedNode as any).llvmType = this.typeChecker.mapToLLVMType(
+        analyzedNode.type,
+      );
     }
 
     return analyzedNode;
@@ -343,7 +178,7 @@ export class Semantic {
         );
       }
 
-      const llvmType = this.mapToLLVMType(arg.type);
+      const llvmType = this.typeChecker.mapToLLVMType(arg.type);
       arg.llvmType = llvmType;
 
       this.defineSymbol({
@@ -361,14 +196,14 @@ export class Semantic {
     }
 
     const returnType = node.type || "void";
-    const returnLLVMType = this.mapToLLVMType(returnType);
+    const returnLLVMType = this.typeChecker.mapToLLVMType(returnType);
 
     const funcInfo = {
       name: funcName,
       params: node.args.map((arg) => ({
         name: arg.id.value,
         type: arg.type,
-        llvmType: this.mapToLLVMType(arg.type),
+        llvmType: this.typeChecker.mapToLLVMType(arg.type),
       })),
       returnType: returnType,
       llvmType: returnLLVMType,
@@ -392,7 +227,7 @@ export class Semantic {
           const returnExprType = returnExpr.type;
 
           if (
-            !this.areTypesCompatible(returnExprType, returnType) &&
+            !this.typeChecker.areTypesCompatible(returnExprType, returnType) &&
             returnType !== "void"
           ) {
             throw new Error(
@@ -432,25 +267,17 @@ export class Semantic {
     }
 
     const moduleName = node.path.value;
+    const stdLib = StandardLibrary.getInstance();
 
-    if (!stdLibModules.has(moduleName)) {
+    if (!stdLib.hasModule(moduleName)) {
       throw new Error(`Standard library module '${moduleName}' not found`);
     }
 
     this.importedModules.add(moduleName);
 
-    const module = stdLibModules.get(moduleName)!;
+    const module = stdLib.getModule(moduleName)!;
     for (const [funcName, funcInfo] of module.functions) {
-      this.availableFunctions.set(funcName, {
-        name: funcName,
-        returnType: funcInfo.returnType,
-        params: funcInfo.params,
-        isVariadic: funcInfo.isVariadic,
-        llvmName: funcInfo.llvmName,
-        ir: funcInfo.ir,
-        isStdLib: funcInfo.isStdLib,
-        llvmType: funcInfo.llvmType,
-      });
+      this.availableFunctions.set(funcName, funcInfo);
     }
 
     return node;
@@ -506,7 +333,7 @@ export class Semantic {
         continue;
       }
 
-      if (!this.areTypesCompatible(argType, paramType)) {
+      if (!this.typeChecker.areTypesCompatible(argType, paramType)) {
         throw new Error(
           `Argument ${
             i + 1
@@ -522,12 +349,26 @@ export class Semantic {
     const left = this.analyzeNode(expr.left) as Expr;
     const right = this.analyzeNode(expr.right) as Expr;
 
-    const resultType = this.checkTypesCompatibility(
+    if (
+      left.kind === "Identifier" &&
+      !this.identifiersUsed.has(left.value)
+    ) {
+      this.identifiersUsed.add(left.value);
+    }
+
+    if (
+      right.kind === "Identifier" &&
+      !this.identifiersUsed.has(right.value)
+    ) {
+      this.identifiersUsed.add(right.value);
+    }
+
+    const resultType = this.typeChecker.checkBinaryExprTypes(
       left.type,
       right.type,
       expr.operator,
     );
-    const llvmResultType = this.mapToLLVMType(resultType);
+    const llvmResultType = this.typeChecker.mapToLLVMType(resultType);
 
     return {
       ...expr,
@@ -569,7 +410,7 @@ export class Semantic {
     }
 
     const actualType = analyzedValue.type ?? decl.type;
-    const llvmType = this.mapToLLVMType(actualType);
+    const llvmType = this.typeChecker.mapToLLVMType(actualType);
 
     this.defineSymbol({
       id: decl.id.value,
@@ -680,107 +521,5 @@ export class Semantic {
       }
     }
     return undefined;
-  }
-
-  private checkTypesCompatibility(
-    leftType: TypesNative | TypesNative[],
-    rightType: TypesNative | TypesNative[],
-    operator: string,
-  ): TypesNative | TypesNative[] {
-    switch (operator) {
-      case "+":
-        if (leftType === "string" || rightType === "string") {
-          return "string";
-        }
-        if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
-            ? "float"
-            : "int";
-        }
-        throw new Error(
-          `Operator '+' cannot be applied to types '${leftType}' and '${rightType}'`,
-        );
-
-      case "-":
-      case "*":
-      case "/":
-        if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
-            ? "float"
-            : "int";
-        }
-        throw new Error(
-          `Operator '${operator}' cannot be applied to types '${leftType}' and '${rightType}'`,
-        );
-
-      case "%":
-        if (leftType === "int" && rightType === "int") {
-          return "int";
-        }
-        throw new Error(
-          `Operator '%' cannot be applied to types '${leftType}' and '${rightType}'`,
-        );
-
-      case "==":
-      case "!=":
-        if (this.areTypesCompatible(leftType, rightType)) {
-          return "bool";
-        }
-        throw new Error(
-          `Operator '${operator}' cannot be applied to incompatible types '${leftType}' and '${rightType}'`,
-        );
-
-      case "<":
-      case "<=":
-      case ">":
-      case ">=":
-        if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return "bool";
-        }
-        if (leftType === "string" && rightType === "string") {
-          return "bool";
-        }
-        throw new Error(
-          `Operator '${operator}' cannot be applied to types '${leftType}' and '${rightType}'`,
-        );
-
-      case "&&":
-      case "||":
-        if (leftType === "bool" && rightType === "bool") {
-          return "bool";
-        }
-        throw new Error(
-          `Operator '${operator}' cannot be applied to types '${leftType}' and '${rightType}'`,
-        );
-
-      default:
-        throw new Error(`Unknown operator: ${operator}`);
-    }
-  }
-
-  private isFloat(left: TypesNative, right: TypesNative): boolean {
-    return (
-      left === "float" || right === "float" || left === "double" ||
-      right === "double"
-    );
-  }
-
-  private isNumericType(type: TypesNative | TypesNative[]): boolean {
-    return type === "int" || type === "float" || type === "binary" ||
-      type === "double";
-  }
-
-  private areTypesCompatible(
-    sourceType: TypesNative | TypesNative[],
-    targetType: TypesNative | TypesNative[],
-  ): boolean {
-    if (sourceType === targetType) return true;
-    if (
-      sourceType === "int" && targetType === "float" ||
-      sourceType === "float" && targetType === "int"
-    ) return true;
-    if (sourceType === "binary" && targetType === "int") return true;
-    if (sourceType === "id" || targetType === "id") return true;
-    return false;
   }
 }
