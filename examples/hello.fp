@@ -1,6 +1,6 @@
 import "io"
 
 print("Hello World\n")
-new name = "Fernando"
+new name = "Fernando" + "Dev"
 
 printf("By %s\n", name)

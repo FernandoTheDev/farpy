@@ -22,7 +22,8 @@ import {
   LLVMFunction,
   LLVMModule,
 } from "../ts-ir/index.ts";
-import { Function, Semantic, StdLibFunction } from "./semantic.ts";
+import { Semantic } from "./semantic.ts";
+import { StdLibFunction } from "./std_lib_module_builder.ts";
 
 export class LLVMIRGenerator {
   private static instance: LLVMIRGenerator;
@@ -67,23 +68,7 @@ export class LLVMIRGenerator {
 
     const entry = mainFunc.createBasicBlock("entry");
 
-    const globalDeclarations: Stmt[] = [];
-    const functionsAndMain: Stmt[] = [];
-
-    for (const node of program.body || []) {
-      if (node.kind === "VariableDeclaration") {
-        globalDeclarations.push(node);
-      } else {
-        functionsAndMain.push(node);
-      }
-    }
-
-    for (const node of globalDeclarations) {
-      this.generateNode(node, entry);
-    }
-
-    // Gera código para o corpo do programa
-    for (const node of functionsAndMain) {
+    for (const node of program.body!) {
       this.generateNode(node, entry);
     }
 
@@ -219,7 +204,7 @@ export class LLVMIRGenerator {
     }
 
     const actualFuncName = funcInfo && funcInfo.isStdLib
-      ? funcInfo.llvmName
+      ? funcInfo.name
       : funcName;
 
     const args: IRValue[] = [];
@@ -253,10 +238,22 @@ export class LLVMIRGenerator {
 
     switch (expr.operator) {
       case "+": {
-        if (expr.llvmType === LLVMType.STRING) {
-          // Strings requerem uma chamada a função de concatenação
-          // TODO: Implement string concatenation
-          return left;
+        if (left.type.includes("i8") || right.type.includes("i8")) {
+          if (!this.declaredFuncs.has("string_concat")) {
+            this.declaredFuncs.add("string_concat");
+            // Declare string concatenation function in the module
+            this.module.addExternal(
+              "declare i8* @string_concat(i8*, i8*)",
+            );
+          }
+
+          // Call the string concatenation function
+          return entry.callInst(
+            "i8*",
+            "string_concat",
+            [left, right],
+            [left.type, right.type],
+          );
         }
 
         return entry.addInst(left, right);
@@ -265,6 +262,26 @@ export class LLVMIRGenerator {
         return entry.subInst(left, right);
       case "*":
         return entry.mulInst(left, right);
+      case "**": {
+        const value = left;
+
+        // Base case: anything to the power of 0 is 1
+        if (Number(right.value) === 0) {
+          return this.makeIrValue("1", "i32");
+        }
+
+        // Handle power of 1 case
+        if (Number(right.value) === 1) {
+          return value;
+        }
+
+        // For powers greater than 1
+        let result = left;
+        for (let i = 1; i < Number(right.value); i++) {
+          result = entry.mulInst(result, left);
+        }
+        return result;
+      }
       case "/":
         return entry.divInst(left, right);
       case "==":
@@ -320,6 +337,7 @@ export class LLVMIRGenerator {
     }
 
     this.variables.set(decl.id.value, variable);
+    this.variables.get(decl.id.value);
     return variable;
   }
 
