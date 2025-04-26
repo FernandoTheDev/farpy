@@ -106,7 +106,7 @@ OPTIONS:
 class FarpyCompilerMain {
   private fileName: string;
   private fileData: string;
-  private reporter: DiagnosticReporter;
+  private readonly reporter: DiagnosticReporter;
   private args: any;
 
   constructor(args: string[]) {
@@ -179,7 +179,7 @@ class FarpyCompilerMain {
     if (this.reporter.hasErrors()) {
       this.reporter.printDiagnostics();
       console.log(this.reporter.getSummary());
-      return false;
+      Deno.exit(-1);
     }
 
     return true;
@@ -215,7 +215,7 @@ class FarpyCompilerMain {
 
   private runDeadCodeAnalyzer(ast: Program, semantic: Semantic): any {
     const analyzer = new DeadCodeAnalyzer(semantic, this.reporter).analyze(
-      semantic.semantic(ast),
+      ast,
     );
 
     if (!this.checkErrorsAndWarnings()) return null;
@@ -223,8 +223,16 @@ class FarpyCompilerMain {
     return analyzer;
   }
 
+  private runOptimizer(ast: Program): any {
+    const optimizer = new Optimizer(this.reporter).resume(ast);
+
+    if (!this.checkErrorsAndWarnings()) return null;
+
+    return optimizer;
+  }
+
   private generateLLVMIR(semanticAST: any, semantic: any): string {
-    const llvmIrGen = LLVMIRGenerator.getInstance();
+    const llvmIrGen = LLVMIRGenerator.getInstance(this.reporter);
     return llvmIrGen.generateIR(semanticAST, semantic, this.fileName);
   }
 
@@ -234,7 +242,7 @@ class FarpyCompilerMain {
 
   private async runBackendCompilation(
     llvmIR: string,
-    semantic: any,
+    semantic: Semantic,
     target: string = "",
   ): Promise<void> {
     const compiler = new FarpyCompiler(
@@ -252,18 +260,19 @@ class FarpyCompilerMain {
       const tokens = this.runLexer();
       if (!tokens) return;
 
-      const ast = this.runParser(tokens);
+      let ast = this.runParser(tokens);
       if (!ast) return;
 
       if (this.handleAstJson(ast)) return;
 
-      const semantic = Semantic.getInstance();
-      let final_ast = this.runDeadCodeAnalyzer(ast, semantic);
+      const semantic = Semantic.getInstance(this.reporter);
+      ast = semantic.semantic(ast);
 
       if (this.shouldOptimize()) {
-        const optmizer = new Optimizer();
-        final_ast = optmizer.resume(final_ast);
+        ast = this.runOptimizer(ast);
       }
+
+      const final_ast = this.runDeadCodeAnalyzer(ast, semantic);
 
       const llvmIR = this.generateLLVMIR(
         final_ast,
@@ -275,7 +284,6 @@ class FarpyCompilerMain {
           `${this.fileName.replace(".fp", ".ll")}`,
           new TextEncoder().encode(llvmIR),
         );
-
         return;
       }
 

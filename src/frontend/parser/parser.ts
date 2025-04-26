@@ -40,7 +40,7 @@ export class Parser {
   private tokens: Token[];
   private pos = 0;
 
-  constructor(tokens: Token[], private reporter: DiagnosticReporter) {
+  constructor(tokens: Token[], private readonly reporter: DiagnosticReporter) {
     this.tokens = tokens;
   }
 

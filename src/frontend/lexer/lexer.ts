@@ -46,7 +46,7 @@ export class Lexer {
   public constructor(
     file: string,
     source: string,
-    private reporter: DiagnosticReporter,
+    private readonly reporter: DiagnosticReporter,
   ) {
     this.file = file;
     this.source = source;

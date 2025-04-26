@@ -1,9 +1,12 @@
+import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
+import { Loc } from "../frontend/lexer/token.ts";
 import {
   AST_FLOAT,
   AST_INT,
   AST_STRING,
   BinaryExpr,
   BinaryLiteral,
+  CallExpr,
   Expr,
   FloatLiteral,
   FunctionDeclaration,
@@ -12,9 +15,12 @@ import {
   ReturnStatement,
   Stmt,
   StringLiteral,
+  VariableDeclaration,
 } from "../frontend/parser/ast.ts";
 
 export class Optimizer {
+  public constructor(private readonly reporter: DiagnosticReporter) {}
+
   public resume(ast: Program): Program {
     const new_ast = {
       kind: "Program",
@@ -25,7 +31,11 @@ export class Optimizer {
     } as Program;
 
     for (const expr of ast.body!) {
-      new_ast.body!.push(this.optimize(expr));
+      try {
+        new_ast.body!.push(this.optimize(expr));
+      } catch (_error: any) {
+        // Ignore
+      }
     }
 
     return new_ast;
@@ -36,11 +46,11 @@ export class Optimizer {
       case "BinaryExpr":
         return this.optimizeBinaryExpr(expr as BinaryExpr);
       case "VariableDeclaration":
-        return this.optimizeVariableDeclaration(expr as any);
+        return this.optimizeVariableDeclaration(expr as VariableDeclaration);
       case "FunctionDeclaration":
         return this.optimizeFnDeclaration(expr as FunctionDeclaration);
       case "CallExpr":
-        return this.optimizeCallExpr(expr as any);
+        return this.optimizeCallExpr(expr as CallExpr);
       case "IncrementExpr":
       case "DecrementExpr":
         return this.optimizeUnaryExpr(expr as any);
@@ -55,7 +65,10 @@ export class Optimizer {
       case "ImportStatement":
         return expr;
       default:
-        console.warn("Unknown expression kind in optimizer: " + expr.kind);
+        this.reporter.addWarning(
+          expr.loc,
+          "Unknown expression kind in optimizer",
+        );
         return expr;
     }
   }
@@ -80,12 +93,14 @@ export class Optimizer {
     return fnDecl;
   }
 
-  private optimizeVariableDeclaration(varDecl: any): any {
+  private optimizeVariableDeclaration(
+    varDecl: VariableDeclaration,
+  ): VariableDeclaration {
     varDecl.value = this.optimize(varDecl.value);
     return varDecl;
   }
 
-  private optimizeCallExpr(callExpr: any): any {
+  private optimizeCallExpr(callExpr: CallExpr): CallExpr {
     callExpr.arguments = callExpr.arguments.map((arg: Expr | Stmt) =>
       this.optimize(arg)
     );
@@ -150,7 +165,7 @@ export class Optimizer {
     left: Expr,
     right: Expr,
     operator: string,
-    loc: any,
+    loc: Loc,
   ): BinaryExpr | Expr {
     if (this.isNumericLiteral(left) && this.isNumericLiteral(right)) {
       return this.evaluateNumericOperation(left, right, operator, loc);
@@ -183,7 +198,7 @@ export class Optimizer {
     left: Expr,
     right: Expr,
     operator: string,
-    loc: any,
+    loc: Loc,
   ): BinaryExpr | Expr {
     const { isInt, leftValue, rightValue } = this.identifyNumberType(
       left,
@@ -205,7 +220,11 @@ export class Optimizer {
           ? AST_INT(leftValue * rightValue, loc)
           : AST_FLOAT(leftValue * rightValue, loc);
       case "/":
-        if (rightValue === 0) {
+        if (rightValue == 0) {
+          this.reporter.addError(
+            loc,
+            "Division by zero detected during optimization",
+          );
           throw new Error("Division by zero detected during optimization");
         }
         // Division always returns float unless we are doing explicit integer division
@@ -213,7 +232,11 @@ export class Optimizer {
           ? AST_INT(Math.floor(leftValue / rightValue), loc)
           : AST_FLOAT(leftValue / rightValue, loc);
       case "%":
-        if (rightValue === 0) {
+        if (rightValue == 0) {
+          this.reporter.addError(
+            loc,
+            "Modulo by zero detected during optimization",
+          );
           throw new Error("Modulo by zero detected during optimization");
         }
         return AST_INT(leftValue % rightValue, loc);
@@ -246,7 +269,6 @@ export class Optimizer {
       case ">=":
         return AST_INT(leftValue >= rightValue ? 1 : 0, loc);
       default:
-        // Operator not supported, returns original expression
         return {
           kind: "BinaryExpr",
           type: left.type,
@@ -262,7 +284,7 @@ export class Optimizer {
     left: StringLiteral,
     right: StringLiteral,
     operator: string,
-    loc: any,
+    loc: Loc,
   ): BinaryExpr | Expr {
     const leftValue = left.value;
     const rightValue = right.value;
