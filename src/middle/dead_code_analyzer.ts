@@ -11,7 +11,7 @@ import { Semantic } from "./semantic.ts";
 export class DeadCodeAnalyzer {
   public constructor(
     private semantic: Semantic,
-    private reporter: DiagnosticReporter,
+    private readonly reporter: DiagnosticReporter,
   ) {}
 
   public analyze(ast: Program): Program {

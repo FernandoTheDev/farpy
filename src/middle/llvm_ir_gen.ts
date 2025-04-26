@@ -1,3 +1,4 @@
+import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import {
   BinaryExpr,
   BinaryLiteral,
@@ -31,13 +32,17 @@ export class LLVMIRGenerator {
   private variables: Map<string, IRValue> = new Map();
   private stringConstants: Map<string, IRValue> = new Map();
   private declaredFuncs: Set<string> = new Set();
-  protected instance: Semantic = Semantic.getInstance();
+  private readonly reporter: DiagnosticReporter;
+  protected instance: Semantic;
 
-  private constructor() {}
+  private constructor(reporter: DiagnosticReporter) {
+    this.reporter = reporter;
+    this.instance = Semantic.getInstance(this.reporter);
+  }
 
-  public static getInstance(): LLVMIRGenerator {
+  public static getInstance(reporter: DiagnosticReporter): LLVMIRGenerator {
     if (!LLVMIRGenerator.instance) {
-      LLVMIRGenerator.instance = new LLVMIRGenerator();
+      LLVMIRGenerator.instance = new LLVMIRGenerator(reporter);
     }
     return LLVMIRGenerator.instance;
   }
@@ -150,6 +155,8 @@ export class LLVMIRGenerator {
       const argType = arg.llvmType!;
 
       const alloca = funcEntry.allocaInst(argType);
+
+      console.log("Func entry");
 
       funcEntry.storeInst(
         { value: `%${argName}`, type: argType },

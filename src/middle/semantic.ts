@@ -1,3 +1,4 @@
+import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import { Loc } from "../frontend/lexer/token.ts";
 import {
   CallExpr,
@@ -39,27 +40,25 @@ interface SymbolInfo {
 export class Semantic {
   private static instance: Semantic;
   private scopeStack: Map<string, SymbolInfo>[] = [];
-  private errors: string[] = [];
   private typeChecker: TypeChecker;
   public availableFunctions: Map<string, StdLibFunction | Function> = new Map();
   public importedModules: Set<string> = new Set();
   public identifiersUsed: Set<string> = new Set();
 
-  private constructor() {
+  private constructor(private readonly reporter: DiagnosticReporter) {
     this.pushScope();
-    this.typeChecker = getTypeChecker();
-    StandardLibrary.getInstance(); // Initialize standard library
+    this.typeChecker = getTypeChecker(reporter);
+    StandardLibrary.getInstance(reporter); // Initialize standard library
   }
 
-  public static getInstance(): Semantic {
+  public static getInstance(reporter: DiagnosticReporter): Semantic {
     if (!Semantic.instance) {
-      Semantic.instance = new Semantic();
+      Semantic.instance = new Semantic(reporter);
     }
     return Semantic.instance;
   }
 
   public semantic(program: Program): Program {
-    this.errors = [];
     this.scopeStack = [new Map()];
 
     const analyzedNodes: Stmt[] = [];
@@ -68,15 +67,9 @@ export class Semantic {
       try {
         const analyzedNode = this.analyzeNode(node);
         analyzedNodes.push(analyzedNode);
-      } catch (error: any) {
-        this.errors.push(`Semantic error: ${error.message}`);
+      } catch (_error: any) {
+        // Ignore
       }
-    }
-
-    if (this.errors.length > 0) {
-      console.error("Semantic analysis failed with errors:");
-      this.errors.forEach((error) => console.error(error));
-      throw new Error("Semantic analysis failed");
     }
 
     const analyzedProgram: Program = {
@@ -133,8 +126,10 @@ export class Semantic {
           llvmType: this.typeChecker.mapToLLVMType(node.type),
         };
         break;
-      default:
+      default: {
+        this.reporter.addError(node.loc, `Unknown node kind: ${node.kind}`);
         throw new Error(`Unknown node kind: ${node.kind}`);
+      }
     }
 
     if (!analyzedNode.llvmType) {
@@ -165,6 +160,10 @@ export class Semantic {
     const funcName = node.id.value;
 
     if (this.availableFunctions.has(funcName)) {
+      this.reporter.addError(
+        node.loc,
+        `Function '${funcName}' is already defined`,
+      );
       throw new Error(`Function '${funcName}' is already defined.`);
     }
 
@@ -173,6 +172,10 @@ export class Semantic {
     const analyzedArgs: FunctionArgs[] = [];
     for (const arg of node.args) {
       if (this.currentScope().has(arg.id.value)) {
+        this.reporter.addError(
+          arg.id.loc,
+          `Parameter '${arg.id.value}' is already defined in function '${funcName}'`,
+        );
         throw new Error(
           `Parameter '${arg.id.value}' is already defined in function '${funcName}' at ${arg.id.loc.line}:${arg.id.loc.start}`,
         );
@@ -192,6 +195,7 @@ export class Semantic {
 
       analyzedArgs.push({
         ...arg,
+        llvmType: llvmType,
       });
     }
 
@@ -230,6 +234,10 @@ export class Semantic {
             !this.typeChecker.areTypesCompatible(returnExprType, returnType) &&
             returnType !== "void"
           ) {
+            this.reporter.addError(
+              node.loc,
+              `Function '${funcName}' returns '${returnExprType}' but is declared to return '${returnType}'`,
+            );
             throw new Error(
               `Function '${funcName}' returns '${returnExprType}' but is declared to return '${returnType}'`,
             );
@@ -239,6 +247,10 @@ export class Semantic {
     }
 
     if (returnType !== "void" && !hasReturn) {
+      this.reporter.addError(
+        node.loc,
+        `Function '${funcName}' is declared to return '${returnType}' but has no return statement`,
+      );
       throw new Error(
         `Function '${funcName}' is declared to return '${returnType}' but has no return statement`,
       );
@@ -270,6 +282,10 @@ export class Semantic {
     const stdLib = StandardLibrary.getInstance();
 
     if (!stdLib.hasModule(moduleName)) {
+      this.reporter.addError(
+        node.path.loc,
+        `Standard library module '${moduleName}' not found`,
+      );
       throw new Error(`Standard library module '${moduleName}' not found`);
     }
 
@@ -287,6 +303,10 @@ export class Semantic {
     const funcName = node.callee.value;
 
     if (!this.availableFunctions.has(funcName)) {
+      this.reporter.addError(
+        node.callee.loc,
+        `Function '${funcName}' is not defined`,
+      );
       throw new Error(`Function '${funcName}' is not defined`);
     }
 
@@ -295,6 +315,10 @@ export class Semantic {
     if (
       !funcInfo.isVariadic && node.arguments.length !== funcInfo.params.length
     ) {
+      this.reporter.addError(
+        node.loc,
+        `Function '${funcName}' expects ${funcInfo.params.length} arguments, but got ${node.arguments.length}`,
+      );
       throw new Error(
         `Function '${funcName}' expects ${funcInfo.params.length} arguments, but got ${node.arguments.length}`,
       );
@@ -334,6 +358,12 @@ export class Semantic {
       }
 
       if (!this.typeChecker.areTypesCompatible(argType, paramType)) {
+        this.reporter.addError(
+          node.arguments[i].loc,
+          `Argument ${
+            i + 1
+          } of function '${funcName}' expects type '${paramType}', but got '${argType}'`,
+        );
         throw new Error(
           `Argument ${
             i + 1
@@ -364,8 +394,8 @@ export class Semantic {
     }
 
     const resultType = this.typeChecker.checkBinaryExprTypes(
-      left.type,
-      right.type,
+      left,
+      right,
       expr.operator,
     );
     const llvmResultType = this.typeChecker.mapToLLVMType(resultType);
@@ -382,6 +412,10 @@ export class Semantic {
   private analyzeIdentifier(id: Identifier): Identifier {
     const symbol = this.lookupSymbol(id.value);
     if (!symbol) {
+      this.reporter.addError(
+        id.loc,
+        `Variable '${id.value}' is not defined`,
+      );
       throw new Error(
         `Variable '${id.value}' is not defined at ${id.loc.line}:${id.loc.start}`,
       );
@@ -404,6 +438,10 @@ export class Semantic {
     const analyzedValue = this.analyzeNode(decl.value) as Expr;
 
     if (this.currentScope().has(decl.id.value)) {
+      this.reporter.addError(
+        decl.id.loc,
+        `Variable '${decl.id.value}' is already defined in this scope`,
+      );
       throw new Error(
         `Variable '${decl.id.value}' is already defined in this scope at ${decl.loc.line}:${decl.loc.start}`,
       );
@@ -433,12 +471,20 @@ export class Semantic {
     const analyzedValue = this.analyzeNode(expr.value) as Expr;
 
     if (analyzedValue.kind !== "Identifier") {
+      this.reporter.addError(
+        expr.loc,
+        "Cannot increment non-variable expression",
+      );
       throw new Error(
         `Cannot increment non-variable expression at ${expr.loc.line}:${expr.loc.start}`,
       );
     }
 
     if (analyzedValue.type !== "int" && analyzedValue.type !== "float") {
+      this.reporter.addError(
+        expr.loc,
+        `Cannot increment variable of type '${analyzedValue.type}'`,
+      );
       throw new Error(
         `Cannot increment variable of type '${analyzedValue.type}' at ${expr.loc.line}:${expr.loc.start}`,
       );
@@ -446,6 +492,12 @@ export class Semantic {
 
     const symbol = this.lookupSymbol((analyzedValue as Identifier).value);
     if (symbol && !symbol.mutable) {
+      this.reporter.addError(
+        expr.loc,
+        `Cannot increment immutable variable '${
+          (analyzedValue as Identifier).value
+        }'`,
+      );
       throw new Error(
         `Cannot increment immutable variable '${
           (analyzedValue as Identifier).value
@@ -465,12 +517,20 @@ export class Semantic {
     const analyzedValue = this.analyzeNode(expr.value) as Expr;
 
     if (analyzedValue.kind !== "Identifier") {
+      this.reporter.addError(
+        expr.loc,
+        "Cannot decrement non-variable expression",
+      );
       throw new Error(
         `Cannot decrement non-variable expression at ${expr.loc.line}:${expr.loc.start}`,
       );
     }
 
     if (analyzedValue.type !== "int" && analyzedValue.type !== "float") {
+      this.reporter.addError(
+        expr.loc,
+        `Cannot decrement variable of type '${analyzedValue.type}'`,
+      );
       throw new Error(
         `Cannot decrement variable of type '${analyzedValue.type}' at ${expr.loc.line}:${expr.loc.start}`,
       );
@@ -478,6 +538,12 @@ export class Semantic {
 
     const symbol = this.lookupSymbol((analyzedValue as Identifier).value);
     if (symbol && !symbol.mutable) {
+      this.reporter.addError(
+        expr.loc,
+        `Cannot decrement immutable variable '${
+          (analyzedValue as Identifier).value
+        }'`,
+      );
       throw new Error(
         `Cannot decrement immutable variable '${
           (analyzedValue as Identifier).value
@@ -499,6 +565,8 @@ export class Semantic {
 
   private popScope(): void {
     if (this.scopeStack.length <= 1) {
+      console.log("Cannot pop the global scope");
+      Deno.exit(-1);
       throw new Error("Cannot pop the global scope");
     }
     this.scopeStack.pop();
