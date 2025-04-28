@@ -1,6 +1,7 @@
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import { Loc } from "../frontend/lexer/token.ts";
 import {
+  AssignmentDeclaration,
   AST_FLOAT,
   AST_INT,
   AST_STRING,
@@ -47,6 +48,10 @@ export class Optimizer {
         return this.optimizeBinaryExpr(expr as BinaryExpr);
       case "VariableDeclaration":
         return this.optimizeVariableDeclaration(expr as VariableDeclaration);
+      case "AssignmentDeclaration":
+        return this.optimizeAssignmentDeclaration(
+          expr as AssignmentDeclaration,
+        );
       case "FunctionDeclaration":
         return this.optimizeFnDeclaration(expr as FunctionDeclaration);
       case "CallExpr":
@@ -71,6 +76,13 @@ export class Optimizer {
         );
         return expr;
     }
+  }
+
+  private optimizeAssignmentDeclaration(
+    assignDecl: AssignmentDeclaration,
+  ): AssignmentDeclaration {
+    assignDecl.value = this.optimize(assignDecl.value);
+    return assignDecl;
   }
 
   private optimizeReturnStatement(
@@ -129,11 +141,7 @@ export class Optimizer {
 
   private isLiteral(expr: Expr): boolean {
     return (
-      expr.kind === "IntLiteral" ||
-      expr.kind === "FloatLiteral" ||
-      expr.kind === "StringLiteral" ||
-      expr.kind === "BinaryLiteral" ||
-      expr.kind === "NullLiteral"
+      expr.kind.includes("Literal")
     );
   }
 

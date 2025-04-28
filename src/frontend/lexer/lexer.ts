@@ -46,6 +46,7 @@ export class Lexer {
   public constructor(
     file: string,
     source: string,
+    private readonly dir: string,
     private readonly reporter: DiagnosticReporter,
   ) {
     this.file = file;
@@ -376,6 +377,7 @@ export class Lexer {
       start,
       end,
       line_string: this.getLineText(currentLine),
+      dir: this.dir,
     };
   }
 

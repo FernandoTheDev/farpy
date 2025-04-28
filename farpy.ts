@@ -186,7 +186,15 @@ class FarpyCompilerMain {
   }
 
   private runLexer(): Token[] | null {
-    const tokens = new Lexer(this.fileName, this.fileData, this.reporter)
+    const dir = Deno.cwd() + "/" +
+      this.fileName.substring(0, this.fileName.lastIndexOf("/")) + "/";
+
+    const tokens = new Lexer(
+      this.fileName,
+      this.fileData,
+      dir,
+      this.reporter,
+    )
       .tokenize();
 
     if (!this.checkErrorsAndWarnings()) return null;

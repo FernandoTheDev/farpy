@@ -32,12 +32,167 @@ export class LLVMBasicBlock {
     return type === "float" ? 32 : type === "double" ? 64 : 0;
   }
 
-  /**
-   * Conversor de tipos:
-   * - Se ambos inteiros: zext/trunc
-   * - Se ambos floats: fpext/fptrunc
-   * - Se misto: sitofp (int->fp)
-   */
+  public convertValueToType(value: IRValue, targetType: string): IRValue {
+    const sourceType = value.type;
+
+    // Early return if types are already the same
+    if (sourceType === targetType) return value;
+
+    try {
+      // Check if both types are pointers
+      const isSourcePointer = sourceType.includes("*");
+      const isTargetPointer = targetType.includes("*");
+      const isSourceInt = this.isInteger(sourceType);
+      const isTargetInt = this.isInteger(targetType);
+      const isSourceFloat = this.isFloat(sourceType);
+      const isTargetFloat = this.isFloat(targetType);
+
+      // Handle pointer to pointer conversion using bitcast
+      if (isSourcePointer && isTargetPointer) {
+        const tmp = this.nextTemp();
+        this.add(
+          `${tmp} = bitcast ${sourceType} ${value.value} to ${targetType}`,
+        );
+        console.log(
+          `Converting pointer type ${sourceType} to ${targetType} using bitcast`,
+        );
+        return { value: tmp, type: targetType };
+      }
+
+      // Integer to pointer conversion
+      if (isSourceInt && isTargetPointer) {
+        const tmp = this.nextTemp();
+        this.add(
+          `${tmp} = inttoptr ${sourceType} ${value.value} to ${targetType}`,
+        );
+        console.log(
+          `Converting integer type ${sourceType} to pointer type ${targetType}`,
+        );
+        return { value: tmp, type: targetType };
+      }
+
+      // Pointer to integer conversion
+      if (isSourcePointer && isTargetInt) {
+        const tmp = this.nextTemp();
+        this.add(
+          `${tmp} = ptrtoint ${sourceType} ${value.value} to ${targetType}`,
+        );
+        console.log(
+          `Converting pointer type ${sourceType} to integer type ${targetType}`,
+        );
+        return { value: tmp, type: targetType };
+      }
+
+      // NEW CASE: Pointer to float conversion (need to go through integer first)
+      if (isSourcePointer && isTargetFloat) {
+        // First convert pointer to integer (using i64 for safety with pointers)
+        const intTmp = this.nextTemp();
+        this.add(`${intTmp} = ptrtoint ${sourceType} ${value.value} to i64`);
+
+        // Then convert integer to float
+        const floatTmp = this.nextTemp();
+        this.add(`${floatTmp} = sitofp i64 ${intTmp} to ${targetType}`);
+        console.log(
+          `Converting pointer type ${sourceType} to float type ${targetType} via i64`,
+        );
+        return { value: floatTmp, type: targetType };
+      }
+
+      // NEW CASE: Float to pointer conversion (need to go through integer first)
+      if (isSourceFloat && isTargetPointer) {
+        // First convert float to integer
+        const intTmp = this.nextTemp();
+        this.add(`${intTmp} = fptosi ${sourceType} ${value.value} to i64`);
+
+        // Then convert integer to pointer
+        const ptrTmp = this.nextTemp();
+        this.add(`${ptrTmp} = inttoptr i64 ${intTmp} to ${targetType}`);
+        console.log(
+          `Converting float type ${sourceType} to pointer type ${targetType} via i64`,
+        );
+        return { value: ptrTmp, type: targetType };
+      }
+
+      // Integer type conversions
+      if (isSourceInt && isTargetInt) {
+        const sourceRank = this.getIntRank(sourceType);
+        const targetRank = this.getIntRank(targetType);
+
+        const tmp = this.nextTemp();
+        let instr;
+
+        if (sourceRank < targetRank) {
+          instr = `sext ${sourceType} ${value.value} to ${targetType}`;
+        } else {
+          instr = `trunc ${sourceType} ${value.value} to ${targetType}`;
+        }
+
+        this.add(`${tmp} = ${instr}`);
+        return { value: tmp, type: targetType };
+      }
+
+      // Float type conversions
+      if (isSourceFloat && isTargetFloat) {
+        const sourceRank = this.getFloatRank(sourceType);
+        const targetRank = this.getFloatRank(targetType);
+
+        const tmp = this.nextTemp();
+        let instr;
+
+        if (sourceRank < targetRank) {
+          instr = `fpext ${sourceType} ${value.value} to ${targetType}`;
+        } else {
+          instr = `fptrunc ${sourceType} ${value.value} to ${targetType}`;
+        }
+
+        this.add(`${tmp} = ${instr}`);
+        return { value: tmp, type: targetType };
+      }
+
+      // Integer to float conversion
+      if (isSourceInt && isTargetFloat) {
+        const tmp = this.nextTemp();
+        this.add(
+          `${tmp} = sitofp ${sourceType} ${value.value} to ${targetType}`,
+        );
+        console.log(
+          `${tmp} = sitofp ${sourceType} ${value.value} to ${targetType}`,
+        );
+        console.log(`Converting type ${sourceType} to ${targetType}`);
+        return { value: tmp, type: targetType };
+      }
+
+      // Float to integer conversion
+      if (isSourceFloat && isTargetInt) {
+        const tmp = this.nextTemp();
+        this.add(
+          `${tmp} = fptosi ${sourceType} ${value.value} to ${targetType}`,
+        );
+        console.log(
+          `${tmp} = fptosi ${sourceType} ${value.value} to ${targetType}`,
+        );
+        console.log(`Converting type ${sourceType} to ${targetType}`);
+        return { value: tmp, type: targetType };
+      }
+
+      // Binary to integer conversion (assuming binary is a custom type for boolean values)
+      if (sourceType === "binary" && isTargetInt) {
+        const tmp = this.nextTemp();
+        this.add(`${tmp} = zext ${sourceType} ${value.value} to ${targetType}`);
+        return { value: tmp, type: targetType };
+      }
+
+      // If no conversion path was found
+      console.log("ERROR");
+      throw new Error(
+        `Unsupported type conversion from ${sourceType} to ${targetType}`,
+      );
+    } catch (error: any) {
+      console.error(`Error during type conversion: ${error.message}`);
+      throw error;
+    }
+  }
+
   public convertOperands(
     op1: IRValue,
     op2: IRValue,
@@ -127,6 +282,47 @@ export class LLVMBasicBlock {
     return { op1, op2, commonType: op1.type };
   }
 
+  public getAlign(type: string): number {
+    // Remove pointer asterisks to get the base type
+    const baseType = type.replace(/\*/g, "");
+
+    // Handle primitive types
+    switch (baseType) {
+      case "i1":
+      case "i8":
+        return 1;
+      case "i16":
+        return 2;
+      case "i32":
+      case "float":
+        return 4;
+      case "i64":
+      case "double":
+        return 8;
+      case "i128":
+        return 16;
+      case "binary": // Custom type for boolean if you're using it
+        return 1;
+      default:
+        // For struct types or user-defined types, we would need more information
+        // For now, default to 8 bytes (pointer size on 64-bit systems)
+        if (baseType.startsWith("%") || baseType.startsWith("@")) {
+          return 8;
+        }
+
+        // For array types, parse dimensions and calculate alignment
+        if (baseType.includes("[") && baseType.includes("x")) {
+          // Extract the element type (e.g., for [4 x i32], get i32)
+          const elementType = baseType.substring(baseType.lastIndexOf("x") + 1)
+            .trim();
+          return this.getAlign(elementType);
+        }
+
+        console.warn(`Unknown type for alignment: ${type}, defaulting to 8`);
+        return 8;
+    }
+  }
+
   // Operações aritméticas utilizando conversor
   public addInst(op1: IRValue, op2: IRValue): IRValue {
     const { op1: lhs, op2: rhs, commonType } = this.convertOperands(op1, op2);
@@ -171,7 +367,7 @@ export class LLVMBasicBlock {
   // Memory e ponteiros
   public allocaInst(varType: string = "i32"): IRValue {
     const tmp = this.nextTemp();
-    this.add(`${tmp} = alloca ${varType}, align 4`);
+    this.add(`${tmp} = alloca ${varType}, align ${this.getAlign(varType)}`);
     return { value: tmp, type: `${varType}*` };
   }
 
@@ -181,7 +377,11 @@ export class LLVMBasicBlock {
     }
     const base = ptr.type.slice(0, -1);
     const tmp = this.nextTemp();
-    this.add(`${tmp} = load ${base}, ${base}* ${ptr.value}, align 4`);
+    this.add(
+      `${tmp} = load ${base}, ${base}* ${ptr.value}, align ${
+        this.getAlign(base)
+      }`,
+    );
     return { value: tmp, type: base };
   }
 
@@ -194,7 +394,9 @@ export class LLVMBasicBlock {
       throw new Error(`Erro store: tipos ${value.type} != ${base}`);
     }
     this.add(
-      `store ${value.type} ${value.value}, ${value.type}* ${ptr.value}, align 4`,
+      `store ${value.type} ${value.value}, ${value.type}* ${ptr.value}, align ${
+        this.getAlign(base)
+      }`,
     );
   }
 
@@ -236,7 +438,6 @@ export class LLVMBasicBlock {
   public toPtr(val: IRValue): IRValue {
     if (this.isPointer(val)) return val;
     const ptr = this.allocaInst(val.type);
-    console.log("toPtr", val, ptr);
     this.storeInst(val, ptr);
     return ptr;
   }
