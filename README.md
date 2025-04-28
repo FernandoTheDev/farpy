@@ -17,10 +17,12 @@ Farpy is a statically-typed, compiled programming language designed for performa
 ## Architecture
 
 1. **Frontend**: Parses Farpy source files using a custom parser in TypeScript and builds an abstract syntax tree (AST).
-2. **Type System**: Performs static type checking with support for primitive types.
+2. **Type System**: Performs static type checking with support for primitive types and structures.
 3. **IR Generator**: Translates the AST into LLVM IR using an in-house TypeScript library, without any FFI or external bindings.
-4. **Optimization & Codegen**: Leverages LLVM tools (`opt`, `llvm-as`, `llc`) to optimize and assemble the IR into native object code.
+4. **Optimization & Codegen**: Uses LLVM tools (`llvm-as`, `clang`) to assemble the IR into native object code.
 5. **Linking**: Combines object files and C-based standard library modules into a final executable using `clang` and `llvm-link`.
+6. **Strip**: Removes symbols and debug information from the binary to reduce its size using the `strip` tool.
+7. **UPX**: Compresses the binary to make it smaller and faster to load using the `upx` tool.
 
 ## Prerequisites
 
@@ -30,10 +32,9 @@ To build and run the Farpy compiler on Linux:
 - [Clang](https://clang.llvm.org/) - C/C++ compiler frontend
 - LLVM toolchain:
   - `llvm-as` (LLVM assembler)
-  - `llc` (LLVM static compiler)
-  - `opt` (LLVM optimizer)
   - `llvm-link` (IR linker)
   - `strip` (symbol stripper)
+  - [UPX](https://upx.github.io/) - Ultimate Packer for Executables (to compress the binary)
 
 Ensure that all tools are available in your system `PATH`.
 
@@ -54,11 +55,11 @@ Ensure that all tools are available in your system `PATH`.
    ```
 4. **Compile a Farpy program**:
    ```bash
-   ./farpy examples/hello.fp
+   ./farpy examples/hello.fp --opt --o hello
    ```
 5. **Run the generated executable**:
    ```bash
-   ./a.out
+   ./hello
    ```
 6. **See how to use compiler flags**
    ```bash
