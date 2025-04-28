@@ -30,11 +30,11 @@ To build and run the Farpy compiler on Linux:
 
 - [Deno](https://deno.land/) - JavaScript and TypeScript runtime
 - [Clang](https://clang.llvm.org/) - C/C++ compiler frontend
+- [UPX](https://upx.github.io/) - Ultimate Packer for Executables (to compress the binary)
 - LLVM toolchain:
   - `llvm-as` (LLVM assembler)
   - `llvm-link` (IR linker)
   - `strip` (symbol stripper)
-  - [UPX](https://upx.github.io/) - Ultimate Packer for Executables (to compress the binary)
 
 Ensure that all tools are available in your system `PATH`.
 
