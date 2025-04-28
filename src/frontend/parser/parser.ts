@@ -1,6 +1,7 @@
 import { TypesNative, TypesNativeArray } from "../values.ts";
 import { Loc, Token, TokenType } from "../lexer/token.ts";
 import {
+  AssignmentDeclaration,
   AST_FLOAT,
   AST_IDENTIFIER,
   AST_INT,
@@ -124,6 +125,9 @@ export class Parser {
         if (this.peek().kind === TokenType.LPAREN) {
           return this.parseCallExpression(AST_IDENTIFIER(name, token.loc));
         }
+        if (this.peek().kind === TokenType.EQUALS) {
+          return this.parseAssignment(AST_IDENTIFIER(name, token.loc));
+        }
         return AST_IDENTIFIER(name, token.loc);
       }
       case TokenType.LPAREN: {
@@ -138,6 +142,20 @@ export class Parser {
         );
         throw new Error(`No prefix parse function for ${token.value}`);
     }
+  }
+
+  private parseAssignment(id: Identifier): AssignmentDeclaration {
+    this.consume(TokenType.EQUALS, "Expect '=' after identifier.");
+    const expr = this.parseExpression(Precedence.LOWEST);
+    const type = expr.type;
+
+    return {
+      kind: "AssignmentDeclaration",
+      id: id,
+      type: type,
+      value: expr,
+      loc: this.makeLoc(id.loc, expr.loc),
+    } as AssignmentDeclaration;
   }
 
   private parseFnStatement(): FunctionDeclaration {
@@ -260,7 +278,7 @@ export class Parser {
 
   private parseNewExpression(): VariableDeclaration {
     const start = this.previous();
-    const mutable: boolean = this.match(TokenType.MUT);
+    // const mutable: boolean = this.match(TokenType.MUT);
     const id = this.consume(
       TokenType.IDENTIFIER,
       "Expect identifier to variable name.",
@@ -276,7 +294,7 @@ export class Parser {
       id: AST_IDENTIFIER(id.value!.toString(), id.loc),
       type: type,
       value: expr,
-      mutable: mutable,
+      mutable: true,
       loc: loc,
     } as VariableDeclaration;
   }

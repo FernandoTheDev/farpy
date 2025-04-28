@@ -1,4 +1,5 @@
-import "io" import "math"
+import "io"
+import "math"
 
 new PI = pi()
 new E = e()

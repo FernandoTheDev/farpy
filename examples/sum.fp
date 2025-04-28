@@ -1,9 +1,5 @@
 import "io"
 
-/*fn hello() {
-    print("Hello\n")
-}*/
-
 fn sum(x: int, y: int): int {
     return x + y
 }
@@ -11,5 +7,4 @@ fn sum(x: int, y: int): int {
 new x = 2 ** 2
 new y = 1999
 
-new z = sum(x, y)
-printf("z = %d\n", z)
+printf("result = %d\n", sum(x, y))

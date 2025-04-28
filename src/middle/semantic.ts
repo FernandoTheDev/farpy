@@ -1,6 +1,8 @@
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
-import { Loc } from "../frontend/lexer/token.ts";
+import { Lexer } from "../frontend/lexer/lexer.ts";
+import { Loc, Token } from "../frontend/lexer/token.ts";
 import {
+  AssignmentDeclaration,
   CallExpr,
   FunctionArgs,
   FunctionDeclaration,
@@ -18,9 +20,14 @@ import {
   Stmt,
   VariableDeclaration,
 } from "../frontend/parser/ast.ts";
+import { Parser } from "../frontend/parser/parser.ts";
 import { TypesNative } from "../frontend/values.ts";
 import { StandardLibrary } from "./standard_library.ts";
-import { Function, StdLibFunction } from "./std_lib_module_builder.ts";
+import {
+  Function,
+  StdLibFunction,
+  StdLibModule,
+} from "./std_lib_module_builder.ts";
 import { getTypeChecker, TypeChecker } from "./type_checker.ts";
 
 export interface TypeMapping {
@@ -39,11 +46,13 @@ interface SymbolInfo {
 
 export class Semantic {
   private static instance: Semantic;
-  private scopeStack: Map<string, SymbolInfo>[] = [];
+  protected scopeStack: Map<string, SymbolInfo>[] = [];
   private typeChecker: TypeChecker;
   public availableFunctions: Map<string, StdLibFunction | Function> = new Map();
   public importedModules: Set<string> = new Set();
+  public stdLibs: Map<string, StdLibModule> = new Map();
   public identifiersUsed: Set<string> = new Set();
+  private externalNodes: Stmt[] = [];
 
   private constructor(private readonly reporter: DiagnosticReporter) {
     this.pushScope();
@@ -65,16 +74,16 @@ export class Semantic {
 
     for (const node of program.body || []) {
       try {
-        const analyzedNode = this.analyzeNode(node);
-        analyzedNodes.push(analyzedNode);
+        analyzedNodes.push(this.analyzeNode(node));
       } catch (_error: any) {
         // Ignore
+        console.log("Error in semantic analysis:", _error.message);
       }
     }
 
     const analyzedProgram: Program = {
       ...program,
-      body: analyzedNodes,
+      body: [...this.externalNodes, ...analyzedNodes],
     };
 
     return analyzedProgram;
@@ -105,6 +114,11 @@ export class Semantic {
       case "VariableDeclaration":
         analyzedNode = this.analyzeVariableDeclaration(
           node as VariableDeclaration,
+        );
+        break;
+      case "AssignmentDeclaration":
+        analyzedNode = this.analyzeAssignmentDeclaration(
+          node as AssignmentDeclaration,
         );
         break;
       case "FunctionDeclaration":
@@ -153,6 +167,50 @@ export class Semantic {
       ...program,
       body: analyzedBody,
       llvmType: LLVMType.VOID,
+    };
+  }
+
+  private analyzeAssignmentDeclaration(
+    node: AssignmentDeclaration,
+  ): AssignmentDeclaration {
+    const analyzedValue = this.analyzeNode(node.value) as Expr;
+
+    if (node.id.kind !== "Identifier") {
+      this.reporter.addError(
+        node.id.loc,
+        `Cannot assign to non-variable expression`,
+      );
+      throw new Error(
+        `Cannot assign to non-variable expression at ${node.id.loc.line}:${node.id.loc.start}`,
+      );
+    }
+
+    const symbol = this.lookupSymbol(node.id.value);
+    if (!symbol) {
+      this.reporter.addError(
+        node.id.loc,
+        `Variable '${node.id.value}' is not defined`,
+      );
+      throw new Error(
+        `Variable '${node.id.value}' is not defined at ${node.id.loc.line}:${node.id.loc.start}`,
+      );
+    }
+
+    if (!symbol.mutable) {
+      this.reporter.addError(
+        node.id.loc,
+        `Cannot assign to immutable variable '${node.id.value}'`,
+      );
+      throw new Error(
+        `Cannot assign to immutable variable '${node.id.value}' at ${node.id.loc.line}:${node.id.loc.start}`,
+      );
+    }
+
+    this.identifiersUsed.add(node.id.value);
+
+    return {
+      ...node,
+      value: analyzedValue,
     };
   }
 
@@ -275,7 +333,7 @@ export class Semantic {
 
   private analyzeImportStatement(node: ImportStatement): ImportStatement {
     if (!node.isStdLib) {
-      return node;
+      return this.analyzeImportExternal(node);
     }
 
     const moduleName = node.path.value;
@@ -289,11 +347,118 @@ export class Semantic {
       throw new Error(`Standard library module '${moduleName}' not found`);
     }
 
-    this.importedModules.add(moduleName);
+    if (this.importedModules.has(moduleName)) {
+      this.reporter.addError(
+        node.path.loc,
+        `Module '${moduleName}' is already imported`,
+        [
+          this.reporter.makeSuggestion(
+            "Remove the import in the file you are importing, not the one being imported.",
+          ),
+        ],
+      );
+      throw new Error(`Module '${moduleName}' is already imported`);
+    }
 
+    this.importedModules.add(moduleName);
     const module = stdLib.getModule(moduleName)!;
+    this.stdLibs.set(moduleName, module);
+
     for (const [funcName, funcInfo] of module.functions) {
       this.availableFunctions.set(funcName, funcInfo);
+    }
+
+    return node;
+  }
+
+  private analyzeImportExternal(node: ImportStatement): ImportStatement {
+    const moduleName = node.path.value;
+
+    if (this.importedModules.has(moduleName)) {
+      this.reporter.addError(
+        node.path.loc,
+        `Module '${moduleName}' is already imported`,
+      );
+      throw new Error(`Module '${moduleName}' is already imported`);
+    }
+
+    this.importedModules.add(moduleName);
+
+    // TODO: Use the file's directory and not the user's as it is now
+    const filePath = node.loc.dir + moduleName;
+    const file = Deno.readTextFileSync(filePath);
+
+    if (!file) {
+      this.reporter.addError(
+        node.path.loc,
+        `Module '${moduleName}' not found`,
+      );
+      throw new Error(`Module '${moduleName}' not found`);
+    }
+
+    const tokens: Token[] | null = new Lexer(
+      moduleName,
+      file,
+      node.loc.dir,
+      this.reporter,
+    )
+      .tokenize();
+
+    if (!tokens) {
+      this.reporter.addError(
+        node.path.loc,
+        `Failed to tokenize module '${moduleName}'`,
+      );
+      throw new Error(`Failed to tokenize module '${moduleName}'`);
+    }
+
+    const ast = new Parser(tokens, this.reporter).parse();
+
+    if (!ast) {
+      this.reporter.addError(
+        node.path.loc,
+        `Failed to parse module '${moduleName}'`,
+      );
+      throw new Error(`Failed to parse module '${moduleName}'`);
+    }
+
+    const allowedNodes: Set<string> = new Set();
+    allowedNodes.add("FunctionDeclaration")
+      .add("ImportStatement");
+
+    const semantic = Semantic.getInstance(this.reporter);
+    const finalAst = semantic.semantic(
+      ast as Program,
+    );
+
+    for (const stmt of finalAst.body!) {
+      if (!allowedNodes.has(stmt.kind)) {
+        continue;
+      }
+
+      // if (
+      //   stmt.kind == "ImportStatement" &&
+      //   this.importedModules.has((stmt as ImportStatement).path.value)
+      // ) {
+      //   this.reporter.addError(
+      //     node.path.loc,
+      //     `Module '${
+      //       (stmt as ImportStatement).path.value
+      //     }' is already imported`,
+      //     [
+      //       this.reporter.makeSuggestion(
+      //         "Remove the import in the file you are importing, not the one being imported.",
+      //       ),
+      //     ],
+      //   );
+      //   throw new Error(
+      //     `Module '${
+      //       (stmt as ImportStatement).path.value
+      //     }' is already imported`,
+      //   );
+      // }
+
+      this.externalNodes.push(stmt);
     }
 
     return node;
@@ -332,31 +497,30 @@ export class Semantic {
       this.identifiersUsed.add(funcInfo.name);
     }
 
-    for (
-      let i = 0;
-      i < node.arguments.length;
-      i++
-    ) {
-      if (
-        node.arguments[i].kind === "Identifier" &&
-        !this.identifiersUsed.has(node.arguments[i].value)
-      ) {
-        this.identifiersUsed.add(node.arguments[i].value);
-      }
+    for (let i = 0; i < node.arguments.length; i++) {
+      // Analisa o nó do argumento primeiro
+      node.arguments[i] = this.analyzeNode(node.arguments[i]);
 
       const argType = node.arguments[i].type;
-      const paramType = funcInfo.params[i] as TypesNative;
+      const param = funcInfo.params[i];
 
-      if (paramType == undefined && funcInfo.isVariadic) {
+      // Se for função variádica e não tiver mais parâmetros definidos, continua
+      if (param === undefined && funcInfo.isVariadic) {
         continue;
       }
 
-      if (argType != "string" && paramType == "string") {
+      const paramType = typeof param === "string"
+        ? param as TypesNative
+        : param.type as TypesNative;
+
+      // Caso especial para conversão para string
+      if (argType !== "string" && paramType === "string") {
         node.arguments[i].type = "string";
         node.arguments[i].value = String(node.arguments[i].value);
         continue;
       }
 
+      // Verifica compatibilidade de tipos
       if (!this.typeChecker.areTypesCompatible(argType, paramType)) {
         this.reporter.addError(
           node.arguments[i].loc,
@@ -369,6 +533,30 @@ export class Semantic {
             i + 1
           } of function '${funcName}' expects type '${paramType}', but got '${argType}'`,
         );
+      }
+
+      // Se os tipos são compatíveis mas diferentes, realiza a conversão
+      if (
+        this.typeChecker.areTypesCompatible(argType, paramType) &&
+        argType !== paramType
+      ) {
+        if (!node.arguments[i].kind.includes("Literal")) {
+          // this.reporter.addError(
+          //   node.arguments[i].loc,
+          //   `You passed an argument of type ${argType} but a ${paramType} was expected.`,
+          //   [
+          //     this.reporter.makeSuggestion(
+          //       "Do type conversion, use the 'types' library",
+          //     ),
+          //   ],
+          // );
+          // new Error(
+          //   `You passed an argument of type ${argType} but a ${paramType} was expected.`,
+          // );
+        }
+
+        node.arguments[i].llvmType = this.typeChecker.mapToLLVMType(paramType);
+        node.arguments[i].type = paramType;
       }
     }
 
@@ -580,7 +768,7 @@ export class Semantic {
     this.currentScope().set(info.id, info);
   }
 
-  private lookupSymbol(id: string): SymbolInfo | undefined {
+  public lookupSymbol(id: string): SymbolInfo | undefined {
     for (let i = this.scopeStack.length - 1; i >= 0; i--) {
       const scope = this.scopeStack[i];
       const symbol = scope.get(id);
@@ -589,5 +777,18 @@ export class Semantic {
       }
     }
     return undefined;
+  }
+
+  private unsetSymbol(id: string): boolean {
+    for (let i = this.scopeStack.length - 1; i >= 0; i--) {
+      const scope = this.scopeStack[i];
+      const symbol = scope.get(id);
+      if (symbol) {
+        scope.delete(id);
+        this.identifiersUsed.delete(id);
+        return true;
+      }
+    }
+    return false;
   }
 }

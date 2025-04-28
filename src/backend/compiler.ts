@@ -1,4 +1,5 @@
 import { Semantic } from "../middle/semantic.ts";
+import { StdLibModule } from "../middle/std_lib_module_builder.ts";
 
 export class FarpyCompiler {
   private tempFiles: string[] = [];
@@ -40,18 +41,25 @@ export class FarpyCompiler {
   }
 
   private async compileStdLibs(
-    stdLibs: string[],
+    stdLibs: Map<string, StdLibModule>,
     destFile: string,
-  ): Promise<void> {
-    if (stdLibs.length === 0) return;
+  ): Promise<string[]> {
+    if (stdLibs.size === 0) return [];
 
     this.log("Compiling standard libraries...");
+    const modulesArgs: string[] = [];
 
-    for (const lib of stdLibs) {
+    for (const [lib, module] of stdLibs) {
       const libFile = this.createTempFile(".bc");
       this.stdLibFiles.push(libFile);
 
-      const args = [`./stdlib/${lib}.c`, "-c", "-emit-llvm", "-o", libFile];
+      let args = [`./stdlib/${lib}.c`, "-c", "-emit-llvm", "-o", libFile];
+
+      if (module.flags) {
+        args = [...args, ...module.flags];
+        modulesArgs.push(...module.flags);
+      }
+
       if (this.target) args.push("-target", this.target);
 
       await this.executeCommand(
@@ -69,6 +77,8 @@ export class FarpyCompiler {
         "Error linking libraries:",
       );
     }
+
+    return modulesArgs;
   }
 
   private cleanupTempFiles(): void {
@@ -98,13 +108,56 @@ export class FarpyCompiler {
       );
       this.log("Bitcode compilation completed.");
 
-      await this.compileStdLibs([...this.instance.importedModules], file_bc);
+      const moduleArgs = await this.compileStdLibs(
+        this.instance.stdLibs,
+        file_bc,
+      );
 
       this.log("Compiling bitcode to binary...");
 
-      const args = [file_bc, "-O3", "-fPIE", "-o", this.outputFile];
+      const args = [
+        file_bc,
+        "-fPIE",
+        "-o",
+        this.outputFile,
+        "-march=native",
+        "-mtune=native",
+        "-ftree-vectorize",
+        "-fdata-sections",
+        "-ffunction-sections",
+        "-Wl,--gc-sections",
+        "-fomit-frame-pointer",
+        "-fstrict-aliasing",
+        "-ffast-math",
+        "-fno-rtti",
+        "-funwind-tables",
+        "-g0",
+        ...moduleArgs,
+      ];
       if (this.target) args.push("-target", this.target);
       if (this.target) this.log("Compiling to target: " + this.target);
+
+      if (this.debug) {
+        const test = [
+          "-S",
+          "-emit-llvm",
+          file_bc,
+          "-o",
+          "debug.ll",
+          ...moduleArgs,
+        ];
+
+        this.log("Compiling to LLVM IR for debugging...");
+        this.log(`Command: clang ${test.join(" ")}`);
+
+        await this.executeCommand(
+          "clang",
+          test,
+          "Error generating llvm-ir:",
+        );
+
+        this.log("LLVM IR generation completed. File: debug.ll\n");
+      }
 
       await this.executeCommand(
         "clang",
@@ -116,9 +169,17 @@ export class FarpyCompiler {
       this.log("Optimizing binary...");
       await this.executeCommand(
         "strip",
-        [this.outputFile],
+        ["--strip-all", this.outputFile],
         "Error optimizing binary:",
       );
+
+      this.log("Upx in action baby...");
+      await this.executeCommand(
+        "upx",
+        [this.outputFile, "--best", "--lzma", "--ultra-brute"],
+        "Error optimizing binary with upx:",
+      );
+
       this.log("Compilation successfully completed!");
     } finally {
       this.cleanupTempFiles();

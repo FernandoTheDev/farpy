@@ -33,6 +33,7 @@ export type NodeType =
   | "ImportStatement"
   | "FunctionDeclaration"
   | "ReturnStatement"
+  | "AssignmentDeclaration"
   | "NullLiteral";
 
 export interface Stmt {
@@ -75,6 +76,14 @@ export interface VariableDeclaration extends Stmt {
   value: Expr;
   type: TypesNative | TypesNative[];
   mutable: boolean;
+  loc: Loc;
+}
+
+export interface AssignmentDeclaration extends Stmt {
+  kind: "AssignmentDeclaration";
+  id: Identifier;
+  value: Expr;
+  type: TypesNative | TypesNative[];
   loc: Loc;
 }
 

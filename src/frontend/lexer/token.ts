@@ -74,6 +74,7 @@ export interface Loc {
   line_string: string;
   start: number;
   end: number;
+  dir: string;
 }
 
 export type Token = {
