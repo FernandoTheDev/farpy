@@ -36,6 +36,7 @@ const ARG_CONFIG = {
     "emit-llvm-ir",
     "targeth",
     "optmize",
+    "g",
   ],
   string: ["ast-json-save", "output", "target"],
   default: { "ast-json-save": "ast.json", "output": "a.out" },
@@ -101,7 +102,7 @@ OPTIONS:
   --debug                 Enable debug mode
   --emit-llvm-ir          Output LLVM IR and exit
   --target=<target>       Specify target architecture (default: your architecture)
-  --targeth           Show target architecture help`;
+  --targeth               Show target architecture help`;
 
 class FarpyCompilerMain {
   private fileName: string;
@@ -155,6 +156,10 @@ class FarpyCompilerMain {
 
   private shouldShowVersion(): boolean {
     return this.args.version === true;
+  }
+
+  private isDebug(): boolean {
+    return this.args.g === true;
   }
 
   private showHelp(): void {
@@ -239,8 +244,12 @@ class FarpyCompilerMain {
     return optimizer;
   }
 
-  private generateLLVMIR(semanticAST: any, semantic: any): string {
-    const llvmIrGen = LLVMIRGenerator.getInstance(this.reporter);
+  private generateLLVMIR(
+    semanticAST: any,
+    semantic: any,
+    debug: boolean,
+  ): string {
+    const llvmIrGen = LLVMIRGenerator.getInstance(this.reporter, debug);
     return llvmIrGen.generateIR(semanticAST, semantic, this.fileName);
   }
 
@@ -285,6 +294,7 @@ class FarpyCompilerMain {
       const llvmIR = this.generateLLVMIR(
         final_ast,
         semantic,
+        this.isDebug(),
       );
 
       if (this.handleEmitIR()) {

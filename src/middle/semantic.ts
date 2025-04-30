@@ -4,8 +4,11 @@ import { Loc, Token } from "../frontend/lexer/token.ts";
 import {
   AssignmentDeclaration,
   CallExpr,
+  ElifStatement,
+  ElseStatement,
   FunctionArgs,
   FunctionDeclaration,
+  IfStatement,
   ImportStatement,
   LLVMType,
   ReturnStatement,
@@ -102,6 +105,17 @@ export class Semantic {
       case "ReturnStatement":
         analyzedNode = this.analyzeReturnStatement(node as ReturnStatement);
         break;
+      case "IfStatement":
+      case "ElifStatement":
+        analyzedNode = this.analyzeIfStatement(
+          node.kind == "ElifStatement"
+            ? node as ElifStatement
+            : node as IfStatement,
+        );
+        break;
+      case "ElseStatement":
+        analyzedNode = this.analyzeElseStatement(node as ElseStatement);
+        break;
       case "CallExpr":
         analyzedNode = this.analyzeCallExpr(node as CallExpr);
         break;
@@ -168,6 +182,33 @@ export class Semantic {
       body: analyzedBody,
       llvmType: LLVMType.VOID,
     };
+  }
+
+  private analyzeElseStatement(
+    node: ElseStatement,
+  ): ElseStatement {
+    for (let i = 0; i < node.primary.length; i++) {
+      node.primary[i] = this.analyzeNode(node.primary[i]);
+    }
+
+    return node;
+  }
+
+  private analyzeIfStatement(
+    node: IfStatement | ElifStatement,
+  ): IfStatement | ElifStatement {
+    node.condition = this.analyzeNode(node.condition as Expr);
+
+    for (let i = 0; i < node.primary.length; i++) {
+      node.primary[i] = this.analyzeNode(node.primary[i]);
+    }
+
+    if (node.secondary !== null) {
+      // @ts-ignore
+      node.secondary = this.analyzeNode(node.secondary as Stmt);
+    }
+
+    return node;
   }
 
   private analyzeAssignmentDeclaration(

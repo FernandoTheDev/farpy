@@ -1,17 +1,18 @@
 import { TempCounter } from "./TempCounter.ts";
 import { IRValue } from "../types/IRTypes.ts";
+import { LLVMFunction } from "./LLVMFunction.ts";
 
 export class LLVMBasicBlock {
   public instructions: string[] = [];
 
-  constructor(public label: string, private tempCounter: TempCounter) {}
+  constructor(public label: string, private tempCounter: LLVMFunction) {}
 
   public add(instruction: string): void {
     this.instructions.push(`  ${instruction}`);
   }
 
   public nextTemp(): string {
-    return this.tempCounter.next();
+    return this.tempCounter.nextTemp();
   }
 
   // Helpers para classificação de tipos
@@ -480,6 +481,7 @@ export class LLVMBasicBlock {
     }
     const tmp = this.nextTemp();
     this.add(`${tmp} = icmp ${cond} ${op1.type} ${op1.value}, ${op2.value}`);
+    // console.log(`${tmp} = icmp ${cond} ${op1.type} ${op1.value}, ${op2.value}`);
     return { value: tmp, type: "i1" };
   }
 

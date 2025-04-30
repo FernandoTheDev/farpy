@@ -1,15 +1,15 @@
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import {
-  AssignmentDeclaration,
   BinaryExpr,
   BinaryLiteral,
   CallExpr,
+  ElifStatement,
   Expr,
   FloatLiteral,
   FunctionDeclaration,
   Identifier,
+  IfStatement,
   IntLiteral,
-  LLVMType,
   NullLiteral,
   Program,
   ReturnStatement,
@@ -17,7 +17,6 @@ import {
   StringLiteral,
   VariableDeclaration,
 } from "../frontend/parser/ast.ts";
-import { TypesNative } from "../frontend/values.ts";
 import {
   createStringGlobal,
   IRValue,
@@ -36,16 +35,21 @@ export class LLVMIRGenerator {
   private stringConstants: Map<string, IRValue> = new Map();
   private declaredFuncs: Set<string> = new Set();
   private readonly reporter: DiagnosticReporter;
+  private readonly debug: boolean;
   protected instance: Semantic;
 
-  private constructor(reporter: DiagnosticReporter) {
+  private constructor(reporter: DiagnosticReporter, debug: boolean) {
     this.reporter = reporter;
+    this.debug = debug;
     this.instance = Semantic.getInstance(this.reporter);
   }
 
-  public static getInstance(reporter: DiagnosticReporter): LLVMIRGenerator {
+  public static getInstance(
+    reporter: DiagnosticReporter,
+    debug: boolean,
+  ): LLVMIRGenerator {
     if (!LLVMIRGenerator.instance) {
-      LLVMIRGenerator.instance = new LLVMIRGenerator(reporter);
+      LLVMIRGenerator.instance = new LLVMIRGenerator(reporter, debug);
     }
     return LLVMIRGenerator.instance;
   }
@@ -73,49 +77,68 @@ export class LLVMIRGenerator {
 
   private generateProgram(program: Program): void {
     const mainFunc = new LLVMFunction("main", "i32", []);
-
     const entry = mainFunc.createBasicBlock("entry");
+    mainFunc.setCurrentBasicBlock(entry);
 
     for (const node of program.body!) {
-      this.generateNode(node, entry);
+      this.generateNode(node, mainFunc);
     }
 
     this.module.addFunction(mainFunc);
-    entry.retInst({ value: "0", type: "i32" });
+    mainFunc.getCurrentBasicBlock().retInst({ value: "0", type: "i32" });
   }
 
-  private generateNode(node: Stmt | Expr, entry: LLVMBasicBlock): IRValue {
+  private generateNode(
+    node: Stmt | Expr,
+    main: LLVMFunction,
+    _entry?: LLVMBasicBlock | null,
+  ): IRValue {
+    const entry = _entry == null ? main.getCurrentBasicBlock() : _entry;
     switch (node.kind) {
       case "BinaryExpr":
-        return this.generateBinaryExpr(node as BinaryExpr, entry);
+        return this.generateBinaryExpr(node as BinaryExpr, entry, main);
       case "Identifier":
-        return this.generateIdentifier(node as Identifier, entry);
+        return this.generateIdentifier(node as Identifier, entry, main);
       case "VariableDeclaration":
         return this.generateVariableDeclaration(
           node as VariableDeclaration,
           entry,
+          main,
+        );
+      case "ElifStatement":
+      case "IfStatement":
+        return this.generateIfStmt(
+          node.kind == "IfStatement"
+            ? node as IfStatement
+            : node as ElifStatement,
+          entry,
+          main as LLVMFunction,
         );
       // TODO
       // case "AssignmentDeclaration":
       //   return this.generateAssignment(node as AssignmentDeclaration, entry);
       case "FunctionDeclaration":
-        return this.generateFnDeclaration(node as FunctionDeclaration, entry);
+        return this.generateFnDeclaration(
+          node as FunctionDeclaration,
+          entry,
+          main,
+        );
       case "StringLiteral":
-        return this.generateStringLiteral(node as StringLiteral, entry);
+        return this.generateStringLiteral(node as StringLiteral, entry, main);
       case "IntLiteral":
-        return this.generateIntLiteral(node as IntLiteral, entry);
+        return this.generateIntLiteral(node as IntLiteral, entry, main);
       case "FloatLiteral":
-        return this.generateFloatLiteral(node as FloatLiteral, entry);
+        return this.generateFloatLiteral(node as FloatLiteral, entry, main);
       case "BinaryLiteral":
-        return this.generateBinaryLiteral(node as BinaryLiteral, entry);
+        return this.generateBinaryLiteral(node as BinaryLiteral, entry, main);
       case "NullLiteral":
-        return this.generateNullLiteral(node as NullLiteral, entry);
+        return this.generateNullLiteral(node as NullLiteral, entry, main);
       case "CallExpr":
-        return this.generateCallExpr(node as CallExpr, entry);
+        return this.generateCallExpr(node as CallExpr, entry, main);
       case "ImportStatement":
         return this.makeIrValue("0", "i32");
       case "ReturnStatement":
-        return this.makeReturnStatement(node as ReturnStatement, entry);
+        return this.makeReturnStatement(node as ReturnStatement, entry, main);
       default:
         throw new Error(
           `Unsupported node kind for IR generation: ${node.kind}`,
@@ -123,66 +146,104 @@ export class LLVMIRGenerator {
     }
   }
 
-  // TODO
-  // private generateAssignment(
-  //   node: AssignmentDeclaration,
-  //   entry: LLVMBasicBlock,
-  // ): IRValue {
-  //   const variable = this.variables.get(node.id.value);
-  //   console.log("Variable:", variable);
+  private generateIfStmt(
+    node: IfStatement | ElifStatement,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+    sharedContinueLabel?: LLVMBasicBlock,
+  ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
 
-  //   if (!variable) {
-  //     this.reporter.addError(
-  //       node.id.loc,
-  //       `Unknown variable: ${node.id.value}`,
-  //     );
-  //     throw new Error(`Unknown variable: ${node.id.value}`);
-  //   }
+    const cond = this.generateNode(node.condition as Expr, main);
+    const ifLabel = main.createBasicBlock(
+      "if_label" + main.nextBlockId(),
+    );
+    const elseLabel = main.createBasicBlock(
+      "else_label" + main.nextBlockId(),
+    );
 
-  //   const value = this.generateNode(node.value, entry);
-  //   console.log("Storing value:", value);
+    const continueLabel = sharedContinueLabel ||
+      main.createBasicBlock(
+        "continue_label" +
+          main.nextBlockId(),
+      );
 
-  //   const variableBaseType = variable.type.replace("*", "");
+    entry.condBrInst(cond, ifLabel.label, elseLabel.label);
 
-  //   if (value.type !== variableBaseType) {
-  //     const typeChecker = new TypeChecker(this.reporter);
+    main.setCurrentBasicBlock(ifLabel);
+    for (const stmt of node.primary) {
+      this.generateNode(stmt, main);
+    }
 
-  //     if (typeChecker.areTypesCompatible(value.type, variableBaseType)) {
-  //       const convertedValue = entry.convertValueToType(
-  //         value,
-  //         variableBaseType,
-  //       );
-  //       console.log(
-  //         `Converting value from ${value.type} to ${variableBaseType}`,
-  //       );
+    if (
+      !ifLabel.instructions.some((instr) =>
+        instr.trim().startsWith("ret ") ||
+        instr.trim().startsWith("br ")
+      )
+    ) {
+      ifLabel.brInst(continueLabel.label);
+    }
 
-  //       entry.storeInst(convertedValue, variable);
-  //     } else {
-  //       this.reporter.addError(
-  //         node.value.loc,
-  //         `Cannot assign value of type '${value.type}' to variable '${node.id.value}' of type '${variableBaseType}'`,
-  //       );
-  //       throw new Error(`Incompatible type assignment to ${node.id.value}`);
-  //     }
-  //   } else {
-  //     entry.storeInst(value, variable);
-  //   }
+    main.setCurrentBasicBlock(elseLabel);
 
-  //   return variable;
-  // }
+    if (node.secondary !== null) {
+      if (node.secondary.kind === "ElifStatement") {
+        this.generateIfStmt(
+          node.secondary as ElifStatement,
+          elseLabel,
+          main,
+          continueLabel,
+        );
+      } else {
+        for (const stmt of node.secondary.primary) {
+          this.generateNode(stmt, main);
+        }
+
+        if (
+          !elseLabel.instructions.some((instr) =>
+            instr.trim().startsWith("ret ") ||
+            instr.trim().startsWith("br ")
+          )
+        ) {
+          elseLabel.brInst(continueLabel.label);
+        }
+      }
+    } else {
+      elseLabel.brInst(continueLabel.label);
+    }
+
+    if (!sharedContinueLabel) {
+      main.setCurrentBasicBlock(continueLabel);
+    }
+
+    return this.makeIrValue("0", "i32");
+  }
 
   private makeReturnStatement(
     node: ReturnStatement,
     entry: LLVMBasicBlock,
+    main: LLVMFunction,
   ): IRValue {
-    const expr = this.generateNode(node.expr, entry);
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
+    const expr = this.generateNode(node.expr, main);
     entry.retInst(expr);
     return expr;
   }
 
+  // Modificação na função generateFnDeclaration no arquivo llvm_ir_gen.ts
   private generateFnDeclaration(
     node: FunctionDeclaration,
     _entry: LLVMBasicBlock,
+    main: LLVMFunction,
   ): IRValue {
     const funcName = node.id.value;
     const getFunc = this.instance.availableFunctions
@@ -197,6 +258,8 @@ export class LLVMIRGenerator {
 
     const func = new LLVMFunction(funcName, node.llvmType!, params);
     const funcEntry = func.createBasicBlock("entry");
+    func.setCurrentBasicBlock(funcEntry); // Certifique-se de definir o bloco atual
+    // main.setCurrentBasicBlock(funcEntry); // Certifique-se de definir o bloco atual
 
     for (
       const arg of getFunc?.params! as {
@@ -222,21 +285,28 @@ export class LLVMIRGenerator {
 
     try {
       for (const stmt of node.block) {
-        this.generateNode(stmt, funcEntry);
+        this.generateNode(stmt, func);
         if (stmt.kind == "ReturnStatement") {
           haveReturn = true;
-          break;
         }
       }
     } catch (error) {
       throw error;
     }
 
-    if (!haveReturn) {
+    // Apenas adicione um return padrão se não houver um return explícito
+    // E se o bloco atual não terminar com um branch ou return
+    const currentBlock = func.getCurrentBasicBlock();
+    const hasTerminator = currentBlock.instructions.some(
+      (instr) =>
+        instr.trim().startsWith("ret ") || instr.trim().startsWith("br "),
+    );
+
+    if (!hasTerminator) {
       if (node.llvmType === "void") {
-        funcEntry.retVoid();
+        currentBlock.retVoid();
       } else {
-        funcEntry.retInst({
+        currentBlock.retInst({
           value: "0",
           type: node.llvmType!,
         });
@@ -245,14 +315,30 @@ export class LLVMIRGenerator {
 
     this.variables = outerVariables;
 
+    if (this.debug) {
+      _entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
     this.module.addFunction(func);
     return { value: "0", type: "i32" } as IRValue;
   }
 
-  private generateCallExpr(node: CallExpr, entry: LLVMBasicBlock): IRValue {
+  private generateCallExpr(
+    node: CallExpr,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
     const funcName = node.callee.value;
     let funcInfo = this.instance.availableFunctions
       .get(funcName);
+
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
 
     funcInfo = funcInfo as StdLibFunction;
     if (!this.declaredFuncs.has(funcName)) {
@@ -272,7 +358,12 @@ export class LLVMIRGenerator {
 
     for (let i = 0; i < node.arguments.length; i++) {
       const arg = node.arguments[i];
-      const argValue = this.generateNode(arg, entry);
+      if (this.debug) {
+        entry.add(
+          `; DEBUG - LINE: ${arg.loc.line} | RAW: ${arg.loc.line_string}`,
+        );
+      }
+      const argValue = this.generateNode(arg, main);
 
       args.push(argValue);
       argsTypes.push(argValue.type);
@@ -292,9 +383,19 @@ export class LLVMIRGenerator {
     return returnValue;
   }
 
-  private generateBinaryExpr(expr: BinaryExpr, entry: LLVMBasicBlock): IRValue {
-    let left = this.generateNode(expr.left, entry);
-    let right = this.generateNode(expr.right, entry);
+  private generateBinaryExpr(
+    expr: BinaryExpr,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
+    let left = this.generateNode(expr.left, main);
+    let right = this.generateNode(expr.right, main);
+
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${expr.loc.line} | RAW: ${expr.loc.line_string}`,
+      );
+    }
 
     if (left.value[0] == "%") {
       // If the left value is a variable, load it
@@ -369,12 +470,22 @@ export class LLVMIRGenerator {
     }
   }
 
-  private generateIdentifier(id: Identifier, entry: LLVMBasicBlock): IRValue {
+  private generateIdentifier(
+    id: Identifier,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
     if (!this.variables.get(id.value)) {
       throw new Error(`Unknown variable: ${id.value}`);
     }
 
     const variable = this.variables.get(id.value) as IRValue;
+
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${id.loc.line} | RAW: ${id.loc.line_string}`,
+      );
+    }
 
     return entry.loadInst({
       value: variable.value as string,
@@ -385,10 +496,17 @@ export class LLVMIRGenerator {
   private generateVariableDeclaration(
     decl: VariableDeclaration,
     entry: LLVMBasicBlock,
+    main: LLVMFunction,
   ): IRValue {
     const type = this.instance.lookupSymbol(decl.id.value)!.llvmType;
     const variable = entry.allocaInst(type);
-    const value = this.generateNode(decl.value, entry);
+    const value = this.generateNode(decl.value, main);
+
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${decl.loc.line} | RAW: ${decl.loc.line_string}`,
+      );
+    }
 
     if (value.type == "i8" || value.type == "i8*") {
       entry.storeInst(
@@ -412,15 +530,22 @@ export class LLVMIRGenerator {
 
   private generateStringLiteral(
     str: StringLiteral,
-    _entry: LLVMBasicBlock,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
   ): IRValue {
-    // Verificar se esta string já foi declarada
     if (this.stringConstants.has(str.value)) {
       return this.stringConstants.get(str.value) as IRValue;
     }
 
     const strPtr = createStringGlobal(this.module, str.value);
-    const value = _entry.getElementPtr(
+
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${str.loc.line} | RAW: ${str.value}`,
+      );
+    }
+
+    const value = entry.getElementPtr(
       `[${str.value.length + 1} x i8]`,
       strPtr,
     );
@@ -428,14 +553,29 @@ export class LLVMIRGenerator {
     return value;
   }
 
-  private generateIntLiteral(int: IntLiteral, _entry: LLVMBasicBlock): IRValue {
+  private generateIntLiteral(
+    int: IntLiteral,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${int.loc.line} | RAW: ${int.value}`,
+      );
+    }
     return this.makeIrValue(String(int.value), int.llvmType as string);
   }
 
   private generateFloatLiteral(
     float: FloatLiteral,
-    _entry: LLVMBasicBlock,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${float.loc.line} | RAW: ${float.value}`,
+      );
+    }
     const value = float.value.toString().includes(".")
       ? float.value.toString()
       : `${float.value}.0`;
@@ -445,15 +585,22 @@ export class LLVMIRGenerator {
   private generateBinaryLiteral(
     binary: BinaryLiteral,
     _entry: LLVMBasicBlock,
+    main: LLVMFunction,
   ): IRValue {
     const decimalValue = parseInt(binary.value.replace(/^0b/, ""), 2);
     return this.makeIrValue(String(decimalValue), "i32");
   }
 
   private generateNullLiteral(
-    _nullLit: NullLiteral,
-    _entry: LLVMBasicBlock,
+    node: NullLiteral,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.value}`,
+      );
+    }
     return this.makeIrValue("null", "null");
   }
 
