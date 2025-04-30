@@ -1,0 +1,17 @@
+# started on Wed Apr 30 15:31:15 2025
+
+
+ Performance counter stats for './tests/zekken tests/fibonacci.zk' (5 runs):
+
+         3.649.668      cycles:u                                                                ( +-  2,91% )
+         6.872.479      instructions:u                   #    1,88  insn per cycle              ( +-  0,01% )
+            27.209      cache-references:u                                                      ( +-  3,78% )
+            14.630      cache-misses:u                   #   53,77% of all cache refs           ( +-  4,08% )
+         1.359.683      branch-instructions:u                                                   ( +-  0,01% )
+            14.621      branch-misses:u                  #    1,08% of all branches             ( +-  0,49% )
+                 0      context-switches:u                                                    
+                 0      cpu-migrations:u                                                      
+               448      page-faults:u                                                           ( +-  0,19% )
+
+         0,0022049 +- 0,0000724 seconds time elapsed  ( +-  3,28% )
+

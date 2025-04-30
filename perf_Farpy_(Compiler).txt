@@ -1,0 +1,17 @@
+# started on Wed Apr 30 15:31:15 2025
+
+
+ Performance counter stats for './tests/fib_farpy' (5 runs):
+
+           427.363      cycles:u                                                                ( +-  5,09% )
+           274.983      instructions:u                   #    0,64  insn per cycle              ( +-  0,00% )
+             4.874      cache-references:u                                                      ( +-  1,12% )
+             1.406      cache-misses:u                   #   28,85% of all cache refs           ( +- 34,92% )
+            76.106      branch-instructions:u                                                   ( +-  0,00% )
+             5.313      branch-misses:u                  #    6,98% of all branches             ( +-  1,28% )
+                 0      context-switches:u                                                    
+                 0      cpu-migrations:u                                                      
+                62      page-faults:u                                                           ( +-  0,82% )
+
+         0,0006557 +- 0,0000266 seconds time elapsed  ( +-  4,05% )
+

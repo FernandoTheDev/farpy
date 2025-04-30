@@ -1,0 +1,17 @@
+# started on Wed Apr 30 15:00:08 2025
+
+
+ Performance counter stats for './fib2':
+
+         1.867.692      cycles                                                                
+         1.408.246      instructions                     #    0,75  insn per cycle            
+            32.016      cache-references                                                      
+            14.450      cache-misses                     #   45,13% of all cache refs         
+            10.990      branch-misses                                                         
+
+       0,000001161 seconds time elapsed
+
+       0,000000000 seconds user
+       0,000000000 seconds sys
+
+
