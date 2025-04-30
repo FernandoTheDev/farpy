@@ -239,6 +239,7 @@ export class LLVMIRGenerator {
     return expr;
   }
 
+  // Modificação na função generateFnDeclaration no arquivo llvm_ir_gen.ts
   private generateFnDeclaration(
     node: FunctionDeclaration,
     _entry: LLVMBasicBlock,
@@ -257,6 +258,8 @@ export class LLVMIRGenerator {
 
     const func = new LLVMFunction(funcName, node.llvmType!, params);
     const funcEntry = func.createBasicBlock("entry");
+    func.setCurrentBasicBlock(funcEntry); // Certifique-se de definir o bloco atual
+    // main.setCurrentBasicBlock(funcEntry); // Certifique-se de definir o bloco atual
 
     for (
       const arg of getFunc?.params! as {
@@ -279,26 +282,31 @@ export class LLVMIRGenerator {
     }
 
     let haveReturn = false;
-    // main.setCurrentBasicBlock(funcEntry);
 
     try {
       for (const stmt of node.block) {
-        console.log("FUNC", stmt.kind);
-        this.generateNode(stmt, func, funcEntry);
+        this.generateNode(stmt, func);
         if (stmt.kind == "ReturnStatement") {
           haveReturn = true;
-          break;
         }
       }
     } catch (error) {
       throw error;
     }
 
-    if (!haveReturn) {
+    // Apenas adicione um return padrão se não houver um return explícito
+    // E se o bloco atual não terminar com um branch ou return
+    const currentBlock = func.getCurrentBasicBlock();
+    const hasTerminator = currentBlock.instructions.some(
+      (instr) =>
+        instr.trim().startsWith("ret ") || instr.trim().startsWith("br "),
+    );
+
+    if (!hasTerminator) {
       if (node.llvmType === "void") {
-        funcEntry.retVoid();
+        currentBlock.retVoid();
       } else {
-        funcEntry.retInst({
+        currentBlock.retInst({
           value: "0",
           type: node.llvmType!,
         });
@@ -314,7 +322,6 @@ export class LLVMIRGenerator {
     }
 
     this.module.addFunction(func);
-    // main.setCurrentBasicBlock(_entry);
     return { value: "0", type: "i32" } as IRValue;
   }
 
