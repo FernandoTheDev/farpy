@@ -6,6 +6,7 @@ import {
   ElifStatement,
   Expr,
   FloatLiteral,
+  ForRangeStatement,
   FunctionDeclaration,
   Identifier,
   IfStatement,
@@ -123,6 +124,12 @@ export class LLVMIRGenerator {
           entry,
           main,
         );
+      case "ForRangeStatement":
+        return this.generateForRangeStmt(
+          node as ForRangeStatement,
+          entry,
+          main,
+        );
       case "StringLiteral":
         return this.generateStringLiteral(node as StringLiteral, entry, main);
       case "IntLiteral":
@@ -144,6 +151,116 @@ export class LLVMIRGenerator {
           `Unsupported node kind for IR generation: ${node.kind}`,
         );
     }
+  }
+
+  // private generateForRangeStmt(
+  //   node: ForRangeStatement,
+  //   entry: LLVMBasicBlock,
+  //   main: LLVMFunction,
+  // ): IRValue {
+  // }
+
+  private generateForRangeStmt(
+    node: ForRangeStatement,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
+    const condBlock = main.createBasicBlock("for.cond" + main.nextBlockId());
+    const bodyBlock = main.createBasicBlock("for.body" + main.nextBlockId());
+    const incBlock = main.createBasicBlock("for.inc" + main.nextBlockId());
+    const endBlock = main.createBasicBlock("for.end" + main.nextBlockId());
+
+    const outerVariables = new Map(this.variables);
+
+    const fromExpr = this.generateNode(node.from, main);
+    const toExpr = this.generateNode(node.to, main);
+
+    let counterVar: IRValue;
+    let counterName: string;
+
+    if (node.id) {
+      counterName = node.id.value;
+      counterVar = entry.allocaInst("i32");
+      this.variables.set(counterName, counterVar);
+    } else {
+      counterName = "_for_idx" + main.nextBlockId();
+      counterVar = entry.allocaInst("i32");
+      this.variables.set(counterName, counterVar);
+    }
+
+    entry.storeInst(fromExpr, counterVar);
+
+    let stepExpr: IRValue;
+    if (node.step) {
+      stepExpr = this.generateNode(node.step, main);
+    } else {
+      stepExpr = this.makeIrValue("1", "i32");
+    }
+
+    entry.brInst(condBlock.label);
+    main.setCurrentBasicBlock(condBlock);
+
+    const counterVal = condBlock.loadInst(counterVar);
+
+    const positiveComp = node.inclusive ? "sle" : "slt";
+    const negativeComp = node.inclusive ? "sge" : "sgt";
+
+    // Check step direction
+    const isPositiveStep = condBlock.nextTemp();
+    condBlock.add(
+      `${isPositiveStep} = icmp sgt ${stepExpr.type} ${stepExpr.value}, 0`,
+    );
+
+    const condPositive = condBlock.nextTemp();
+    const condNegative = condBlock.nextTemp();
+    const condition = condBlock.nextTemp();
+
+    condBlock.add(
+      `${condPositive} = icmp ${positiveComp} ${counterVal.type} ${counterVal.value}, ${toExpr.value}`,
+    );
+    condBlock.add(
+      `${condNegative} = icmp ${negativeComp} ${counterVal.type} ${counterVal.value}, ${toExpr.value}`,
+    );
+    condBlock.add(
+      `${condition} = select i1 ${isPositiveStep}, i1 ${condPositive}, i1 ${condNegative}`,
+    );
+
+    condBlock.condBrInst(
+      { value: condition, type: "i1" },
+      bodyBlock.label,
+      endBlock.label,
+    );
+
+    main.setCurrentBasicBlock(bodyBlock);
+    for (const stmt of node.block) {
+      this.generateNode(stmt, main);
+    }
+
+    if (
+      !bodyBlock.instructions.some((instr) =>
+        instr.trim().startsWith("ret ") || instr.trim().startsWith("br ")
+      )
+    ) {
+      bodyBlock.brInst(incBlock.label);
+    }
+
+    main.setCurrentBasicBlock(incBlock);
+    const counterCurr = incBlock.loadInst(counterVar);
+    const counterNext = incBlock.addInst(counterCurr, stepExpr);
+    incBlock.storeInst(counterNext, counterVar);
+    incBlock.brInst(condBlock.label);
+
+    main.setCurrentBasicBlock(endBlock);
+
+    this.variables = outerVariables;
+
+    return this.makeIrValue("0", "i32");
   }
 
   private generateIfStmt(
@@ -531,7 +648,7 @@ export class LLVMIRGenerator {
   private generateStringLiteral(
     str: StringLiteral,
     entry: LLVMBasicBlock,
-    main: LLVMFunction,
+    _main: LLVMFunction,
   ): IRValue {
     if (this.stringConstants.has(str.value)) {
       return this.stringConstants.get(str.value) as IRValue;
@@ -549,7 +666,7 @@ export class LLVMIRGenerator {
       `[${str.value.length + 1} x i8]`,
       strPtr,
     );
-    this.stringConstants.set(str.value, value);
+    // this.stringConstants.set(str.value, value);
     return value;
   }
 

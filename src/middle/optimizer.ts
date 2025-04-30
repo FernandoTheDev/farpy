@@ -11,6 +11,7 @@ import {
   ElifStatement,
   Expr,
   FloatLiteral,
+  ForRangeStatement,
   FunctionDeclaration,
   IfStatement,
   IntLiteral,
@@ -70,6 +71,8 @@ export class Optimizer {
         return this.optimizeUnaryExpr(expr as any);
       case "ReturnStatement":
         return this.optimizeReturnStatement(expr as ReturnStatement);
+      case "ForRangeStatement":
+        return this.optimizeForRangeStatement(expr as ForRangeStatement);
       case "IntLiteral":
       case "FloatLiteral":
       case "StringLiteral":
@@ -85,6 +88,19 @@ export class Optimizer {
         );
         return expr;
     }
+  }
+
+  private optimizeForRangeStatement(
+    node: ForRangeStatement,
+  ): ForRangeStatement {
+    const body = node.block;
+    node.block = [];
+
+    for (const expr of body) {
+      node.block.push(this.optimize(expr));
+    }
+
+    return node;
   }
 
   private optimizeAssignmentDeclaration(

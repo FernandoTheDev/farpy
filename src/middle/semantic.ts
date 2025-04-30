@@ -6,6 +6,7 @@ import {
   CallExpr,
   ElifStatement,
   ElseStatement,
+  ForRangeStatement,
   FunctionArgs,
   FunctionDeclaration,
   IfStatement,
@@ -92,6 +93,21 @@ export class Semantic {
     return analyzedProgram;
   }
 
+  private analyzeProgram(program: Program): Program {
+    const analyzedBody: Stmt[] = [];
+
+    for (const node of program.body || []) {
+      const analyzedNode = this.analyzeNode(node);
+      analyzedBody.push(analyzedNode);
+    }
+
+    return {
+      ...program,
+      body: analyzedBody,
+      llvmType: LLVMType.VOID,
+    };
+  }
+
   private analyzeNode(node: Stmt | Expr): Stmt | Expr {
     let analyzedNode: Stmt | Expr;
 
@@ -124,6 +140,9 @@ export class Semantic {
         break;
       case "Identifier":
         analyzedNode = this.analyzeIdentifier(node as Identifier);
+        break;
+      case "ForRangeStatement":
+        analyzedNode = this.analyzeForRangeStmt(node as ForRangeStatement);
         break;
       case "VariableDeclaration":
         analyzedNode = this.analyzeVariableDeclaration(
@@ -169,19 +188,30 @@ export class Semantic {
     return analyzedNode;
   }
 
-  private analyzeProgram(program: Program): Program {
-    const analyzedBody: Stmt[] = [];
+  private analyzeForRangeStmt(node: ForRangeStatement): ForRangeStatement {
+    node.from = this.analyzeNode(node.from);
+    node.to = this.analyzeNode(node.to);
 
-    for (const node of program.body || []) {
-      const analyzedNode = this.analyzeNode(node);
-      analyzedBody.push(analyzedNode);
+    if (node.id) {
+      this.defineSymbol({
+        id: node.id.value,
+        sourceType: node.id.type,
+        llvmType: LLVMType.I32,
+        mutable: true,
+        initialized: false,
+        loc: node.id.loc,
+      });
     }
 
-    return {
-      ...program,
-      body: analyzedBody,
-      llvmType: LLVMType.VOID,
-    };
+    if (node.step) {
+      node.step = this.analyzeNode(node.step);
+    }
+
+    for (let i = 0; i < node.block.length; i++) {
+      node.block[i] = this.analyzeNode(node.block[i]);
+    }
+
+    return node;
   }
 
   private analyzeElseStatement(
