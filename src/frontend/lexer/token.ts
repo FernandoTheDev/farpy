@@ -12,6 +12,7 @@ export enum TokenType {
   IMPORT, // import x 9
   AS, // import x as y 10
   BREAK, // break 11
+  STEP, // step 50
 
   IDENTIFIER, // omg 12
 
@@ -48,6 +49,7 @@ export enum TokenType {
   COLON, // : 38
   SEMICOLON, // ; 39
   DOT, // . 40
+  RANGE, // . 49
   LPAREN, // ( 41
   RPAREN, // ) 42
   LBRACE, // { 43
@@ -96,4 +98,5 @@ export const Keywords: Record<string, TokenType> = {
   "import": TokenType.IMPORT,
   "as": TokenType.AS,
   "break": TokenType.BREAK,
+  "step": TokenType.STEP,
 };

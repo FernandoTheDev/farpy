@@ -26,6 +26,7 @@ export type NodeType =
   | "Identifier"
   | "StringLiteral"
   | "IntLiteral"
+  | "NullLiteral"
   | "FloatLiteral"
   | "BinaryLiteral"
   | "VariableDeclaration"
@@ -37,7 +38,8 @@ export type NodeType =
   | "IfStatement"
   | "ElseStatement"
   | "ElifStatement"
-  | "NullLiteral";
+  | "ForRangeStatement"
+  | "ForCStyleStatement";
 
 export interface Stmt {
   kind: NodeType;
@@ -225,4 +227,23 @@ export interface ElseStatement extends Stmt {
   type: TypesNative | TypesNative[];
   value: Expr | Expr[] | Stmt;
   primary: Stmt[];
+}
+
+export interface ForRangeStatement extends Stmt {
+  kind: "ForRangeStatement";
+  id: Identifier | null; // O `as i`, pode ser null
+  from: Expr; // início do range
+  to: Expr; // fim do range
+  inclusive: boolean; // `..=` = true, `..` = false
+  step?: Expr; // valor de step, se houver
+  block: Stmt[]; // corpo do for
+}
+
+// TODO
+export interface ForCStyleStatement extends Stmt {
+  kind: "ForCStyleStatement";
+  init?: Stmt; // declaração ou atribuição, pode ser undefined
+  condition: Expr; // condição de parada
+  update: Expr; // incremento (IncrementExpr, etc.)
+  block: Stmt[]; // corpo do for
 }

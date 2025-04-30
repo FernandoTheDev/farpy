@@ -12,6 +12,8 @@ import {
   ElifStatement,
   ElseStatement,
   Expr,
+  ForCStyleStatement,
+  ForRangeStatement,
   FunctionArgs,
   FunctionDeclaration,
   Identifier,
@@ -126,6 +128,8 @@ export class Parser {
         return this.parseFnStatement();
       case TokenType.IF:
         return this.parseIfStatement();
+      case TokenType.FOR:
+        return this.parseForStatement();
       case TokenType.IDENTIFIER: {
         const name = token.value!.toString();
         if (this.peek().kind === TokenType.LPAREN) {
@@ -148,6 +152,80 @@ export class Parser {
         );
         throw new Error(`No prefix parse function for ${token.value}`);
     }
+  }
+
+  private parseForStatement(): ForRangeStatement | ForCStyleStatement {
+    const start = this.previous();
+    const from = this.advance();
+
+    if (from.kind != TokenType.INT) {
+      this.reporter.addError(from.loc, "An IntLiteral was expected");
+      throw new Error("An IntLiteral was expected");
+    }
+
+    this.consume(TokenType.RANGE, "'..' was expected after the literal.");
+
+    let inclusive = false;
+    let step: null | Token = null;
+    let id: null | Token = null;
+    const body: Stmt[] = [];
+
+    if (this.match(TokenType.EQUALS)) {
+      inclusive = true;
+    }
+
+    const to = this.consume(
+      TokenType.INT,
+      "A literal after the '..' was expected.",
+    );
+    let negative = false;
+
+    if (this.match(TokenType.STEP)) {
+      negative = this.match(TokenType.MINUS);
+      step = this.consume(
+        TokenType.INT,
+        "An integer was expected for the step value.",
+      );
+    }
+
+    if (this.match(TokenType.AS)) {
+      id = this.consume(
+        TokenType.IDENTIFIER,
+        "An identifier was expected.",
+      );
+    }
+
+    this.consume(
+      TokenType.LBRACE,
+      "A '{' was expected to start the for block.",
+    );
+
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      body.push(this.parseExpression(Precedence.LOWEST));
+    }
+
+    const end = this.consume(
+      TokenType.RBRACE,
+      "A '}' was expected to close the for block.",
+    );
+
+    return {
+      kind: "ForRangeStatement",
+      id: id,
+      step: step != null
+        ? AST_INT(
+          negative == false ? Number(step!.value) : -Number(step!.value),
+          step!.loc,
+        )
+        : null,
+      from: AST_INT(Number(from.value), from.loc),
+      to: AST_INT(Number(to.value), to.loc),
+      inclusive: inclusive,
+      block: body,
+      type: "null",
+      value: AST_NULL({} as Loc),
+      loc: this.makeLoc(start.loc, end.loc),
+    } as ForRangeStatement;
   }
 
   private parseIfStatement(miaKhalifa: boolean = true): IfStatement {

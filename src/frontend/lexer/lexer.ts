@@ -41,6 +41,7 @@ export class Lexer {
     "&&": TokenType.AND,
     "||": TokenType.OR,
     "!=": TokenType.NOT_EQUALS,
+    "..": TokenType.RANGE,
   };
 
   public constructor(
@@ -175,9 +176,22 @@ export class Lexer {
     let number = this.lexing_basic_num();
     const startPos = this.start;
 
+    if (
+      this.source[this.offset] === "." &&
+      this.source[this.offset + 1] === "." &&
+      this.offset <= this.source.length
+    ) {
+      this.createToken(TokenType.INT, Number(number), 0);
+      this.createToken(TokenType.RANGE, "..", 2);
+      return;
+    }
+
     // Check if it's a float
     if (this.offset < this.source.length && this.source[this.offset] === ".") {
       number += this.source[this.offset];
+
+      console.log(this.source[this.offset], this.source[this.offset + 1]);
+
       this.offset++;
       number += this.lexing_basic_num();
 
