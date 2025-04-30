@@ -7,9 +7,11 @@ Thank you for considering contributing to Farpy! We welcome contributions from d
 To ensure a smooth contribution process, please follow these steps:
 
 ### 1. **Fork the Repository**
+
    Fork the repository to your GitHub account by clicking the "Fork" button at the top-right of the repository page.
 
 ### 2. **Clone Your Fork**
+
    Clone the forked repository to your local machine:
 
    ```bash
@@ -18,6 +20,7 @@ To ensure a smooth contribution process, please follow these steps:
    ```
 
 ### 3. **Create a New Branch**
+
    Create a new branch to work on your feature or bugfix. It's good practice to name your branch descriptively:
 
    ```bash
@@ -25,9 +28,11 @@ To ensure a smooth contribution process, please follow these steps:
    ```
 
 ### 4. **Make Your Changes**
+
    Work on your feature or bugfix. Make sure your changes align with the existing code style and architecture. If you’re adding a new feature, consider adding appropriate tests.
 
 ### 5. **Commit Your Changes**
+
    Once you're happy with your changes, commit them with clear, descriptive messages:
 
    ```bash
@@ -36,6 +41,7 @@ To ensure a smooth contribution process, please follow these steps:
    ```
 
 ### 6. **Push Your Changes**
+
    Push your changes to your forked repository:
 
    ```bash
@@ -43,6 +49,7 @@ To ensure a smooth contribution process, please follow these steps:
    ```
 
 ### 7. **Open a Pull Request**
+
    Open a pull request (PR) from your branch to the `main` branch of the main Farpy repository. In your PR description, explain what your changes do and why they’re needed.
 
 ---
@@ -72,6 +79,6 @@ If you find a bug or have a feature request, please feel free to open an issue i
 
 ---
 
-## Thank You!
+## Thank You
 
 We greatly appreciate your interest in contributing to Farpy! If you have any questions, feel free to reach out by opening an issue or contacting the project maintainers directly.

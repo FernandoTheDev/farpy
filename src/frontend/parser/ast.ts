@@ -34,6 +34,9 @@ export type NodeType =
   | "FunctionDeclaration"
   | "ReturnStatement"
   | "AssignmentDeclaration"
+  | "IfStatement"
+  | "ElseStatement"
+  | "ElifStatement"
   | "NullLiteral";
 
 export interface Stmt {
@@ -202,4 +205,24 @@ export interface FunctionDeclaration extends Stmt {
 export interface ReturnStatement extends Stmt {
   kind: "ReturnStatement";
   expr: Expr;
+}
+
+export interface IfStatement extends Stmt {
+  kind: "IfStatement" | "ElifStatement";
+  type: TypesNative | TypesNative[]; // Type of return if exists
+  value: Expr | Expr[] | Stmt; // Value of return if exists
+  condition: Expr | Expr[];
+  primary: Stmt[]; // if {} | elif {}
+  secondary: ElifStatement | ElseStatement | null; // else {} | elif {}
+}
+
+export interface ElifStatement extends IfStatement {
+  kind: "ElifStatement";
+}
+
+export interface ElseStatement extends Stmt {
+  kind: "ElseStatement";
+  type: TypesNative | TypesNative[];
+  value: Expr | Expr[] | Stmt;
+  primary: Stmt[];
 }

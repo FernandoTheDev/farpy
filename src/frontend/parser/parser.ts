@@ -1,4 +1,4 @@
-import { TypesNative, TypesNativeArray } from "../values.ts";
+import { TypesNative } from "../values.ts";
 import { Loc, Token, TokenType } from "../lexer/token.ts";
 import {
   AssignmentDeclaration,
@@ -9,11 +9,15 @@ import {
   AST_STRING,
   BinaryExpr,
   CallExpr,
+  ElifStatement,
+  ElseStatement,
   Expr,
   FunctionArgs,
   FunctionDeclaration,
   Identifier,
+  IfStatement,
   ImportStatement,
+  NullLiteral,
   Program,
   ReturnStatement,
   Stmt,
@@ -120,6 +124,8 @@ export class Parser {
         return this.parseReturnStatement();
       case TokenType.FN:
         return this.parseFnStatement();
+      case TokenType.IF:
+        return this.parseIfStatement();
       case TokenType.IDENTIFIER: {
         const name = token.value!.toString();
         if (this.peek().kind === TokenType.LPAREN) {
@@ -142,6 +148,86 @@ export class Parser {
         );
         throw new Error(`No prefix parse function for ${token.value}`);
     }
+  }
+
+  private parseIfStatement(miaKhalifa: boolean = true): IfStatement {
+    const start = this.previous();
+    const condition = this.parseExpression(Precedence.LOWEST);
+
+    this.consume(TokenType.LBRACE, "Expected '{' after condition.");
+    let returnStmt: ReturnStatement | NullLiteral = AST_NULL({} as Loc);
+
+    const body: Stmt[] = [];
+    // @ts-ignore
+    let bodySecond: ElifStatement | ElseStatement | null = null;
+
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      if (this.peek().kind == TokenType.RETURN) {
+        returnStmt = this.parseExpression(
+          Precedence.LOWEST,
+        ) as ReturnStatement;
+        body.push(returnStmt);
+        break;
+      }
+      body.push(this.parseExpression(Precedence.LOWEST));
+    }
+
+    const end = this.consume(
+      TokenType.RBRACE,
+      "Expect '}' after function body.",
+    );
+
+    if (this.match(TokenType.ELIF)) {
+      // @ts-ignore
+      bodySecond = this.parseIfStatement(false);
+    }
+
+    if (this.match(TokenType.ELSE)) {
+      bodySecond = this.parseElseStatement();
+    }
+
+    return {
+      kind: miaKhalifa ? "IfStatement" : "ElifStatement",
+      type: returnStmt.type,
+      value: returnStmt.value,
+      condition: condition,
+      primary: body,
+      secondary: bodySecond,
+      loc: this.makeLoc(start.loc, end.loc),
+    } as IfStatement;
+  }
+
+  private parseElseStatement(): ElseStatement {
+    const start = this.previous();
+
+    this.consume(TokenType.LBRACE, "Expected '{' after 'else'.");
+    let returnStmt: ReturnStatement | NullLiteral = AST_NULL({} as Loc);
+
+    const body: Stmt[] = [];
+
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      if (this.peek().kind == TokenType.RETURN) {
+        returnStmt = this.parseExpression(
+          Precedence.LOWEST,
+        ) as ReturnStatement;
+        body.push(returnStmt);
+        break;
+      }
+      body.push(this.parseExpression(Precedence.LOWEST));
+    }
+
+    const end = this.consume(
+      TokenType.RBRACE,
+      "Expect '}' after function body.",
+    );
+
+    return {
+      kind: "ElseStatement",
+      type: returnStmt.type,
+      value: returnStmt.value,
+      primary: body,
+      loc: this.makeLoc(start.loc, end.loc),
+    } as ElseStatement;
   }
 
   private parseAssignment(id: Identifier): AssignmentDeclaration {

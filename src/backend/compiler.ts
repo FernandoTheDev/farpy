@@ -176,7 +176,7 @@ export class FarpyCompiler {
       this.log("Upx in action baby...");
       await this.executeCommand(
         "upx",
-        [this.outputFile, "--best", "--lzma", "--ultra-brute"],
+        [this.outputFile, "--best"],
         "Error optimizing binary with upx:",
       );
 

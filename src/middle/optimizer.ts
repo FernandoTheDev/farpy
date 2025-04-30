@@ -8,9 +8,11 @@ import {
   BinaryExpr,
   BinaryLiteral,
   CallExpr,
+  ElifStatement,
   Expr,
   FloatLiteral,
   FunctionDeclaration,
+  IfStatement,
   IntLiteral,
   Program,
   ReturnStatement,
@@ -44,6 +46,13 @@ export class Optimizer {
 
   private optimize(expr: Expr | Stmt): Expr | Stmt {
     switch (expr.kind) {
+      case "ElifStatement":
+      case "IfStatement":
+        return this.optimizeIfStmt(
+          expr.kind == "IfStatement"
+            ? expr as IfStatement
+            : expr as ElifStatement,
+        );
       case "BinaryExpr":
         return this.optimizeBinaryExpr(expr as BinaryExpr);
       case "VariableDeclaration":
@@ -103,6 +112,24 @@ export class Optimizer {
     }
 
     return fnDecl;
+  }
+
+  private optimizeIfStmt(
+    node: IfStatement,
+  ): IfStatement {
+    const body = node.primary;
+    node.primary = [];
+
+    for (const expr of body) {
+      node.primary.push(this.optimize(expr));
+    }
+
+    if (node.secondary !== null) {
+      // @ts-ignore
+      node.secondary = this.optimize(node.secondary);
+    }
+
+    return node;
   }
 
   private optimizeVariableDeclaration(
