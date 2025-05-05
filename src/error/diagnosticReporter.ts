@@ -205,7 +205,7 @@ export class DiagnosticReporter {
 
       const tokenColor = tokenType !== undefined
         ? this.getTokenColor(tokenType)
-        : "";
+        : colors.red;
       output += parts[0];
       output += tokenColor ? `${tokenColor}${parts[1]}${reset}` : parts[1];
       output += parts[2];

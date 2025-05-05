@@ -1,5 +1,6 @@
 import { Loc } from "../lexer/token.ts";
 import { TypesNative } from "../values.ts";
+import { Define, Function } from "./cparser.ts";
 
 export enum LLVMType {
   I1 = "i1", // Bool (1 bit)
@@ -7,6 +8,7 @@ export enum LLVMType {
   I16 = "i16", // Short (16 bits)
   I32 = "i32", // Int (32 bits)
   I64 = "i64", // Long (64 bits)
+  I128 = "i128", // Long (128 bits)
 
   FLOAT = "float",
   DOUBLE = "double",
@@ -39,7 +41,10 @@ export type NodeType =
   | "ElseStatement"
   | "ElifStatement"
   | "ForRangeStatement"
-  | "ForCStyleStatement";
+  | "ForCStyleStatement"
+  | "ArrowExpression"
+  | "StructStatement"
+  | "ExternStatement";
 
 export interface Stmt {
   kind: NodeType;
@@ -246,4 +251,27 @@ export interface ForCStyleStatement extends Stmt {
   condition: Expr; // condição de parada
   update: Expr; // incremento (IncrementExpr, etc.)
   block: Stmt[]; // corpo do for
+}
+
+export interface StructStatement extends Stmt {
+  kind: "StructStatement";
+  name: Identifier;
+  body: { id: Identifier; value: Expr }[];
+}
+
+export interface ArrowExpression extends Expr {
+  kind: "ArrowExpression";
+  from: Expr;
+  to: Expr;
+  struct: Expr;
+}
+
+export interface ExternStatement extends Stmt {
+  kind: "ExternStatement";
+  language: string; // "C", ...
+  file?: string;
+  includes: string[];
+  defines: Define[];
+  functions: Function[]; // cparse.ts
+  code: string;
 }

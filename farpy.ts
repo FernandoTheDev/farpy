@@ -15,7 +15,7 @@ import { FarpyCompiler } from "./src/backend/compiler.ts";
 import { DiagnosticReporter } from "./src/error/diagnosticReporter.ts";
 import { Token } from "./src/frontend/lexer/token.ts";
 import { Optimizer } from "./src/middle/optimizer.ts";
-import { Program } from "./src/frontend/parser/ast.ts";
+import { ExternStatement, Program } from "./src/frontend/parser/ast.ts";
 import { DeadCodeAnalyzer } from "./src/middle/dead_code_analyzer.ts";
 
 const ARG_CONFIG = {
@@ -248,9 +248,12 @@ class FarpyCompilerMain {
     semanticAST: any,
     semantic: any,
     debug: boolean,
-  ): string {
+  ): { ir: string; externs: string[] } {
     const llvmIrGen = LLVMIRGenerator.getInstance(this.reporter, debug);
-    return llvmIrGen.generateIR(semanticAST, semantic, this.fileName);
+    return {
+      ir: llvmIrGen.generateIR(semanticAST, semantic, this.fileName),
+      externs: llvmIrGen.externs,
+    };
   }
 
   private handleEmitIR(): boolean {
@@ -261,6 +264,7 @@ class FarpyCompilerMain {
     llvmIR: string,
     semantic: Semantic,
     target: string = "",
+    externs: string[],
   ): Promise<void> {
     const compiler = new FarpyCompiler(
       llvmIR,
@@ -268,6 +272,7 @@ class FarpyCompilerMain {
       semantic,
       this.args["debug"],
       target,
+      externs,
     );
     await compiler.compile();
   }
@@ -300,15 +305,16 @@ class FarpyCompilerMain {
       if (this.handleEmitIR()) {
         await Deno.writeFile(
           `${this.fileName.replace(".fp", ".ll")}`,
-          new TextEncoder().encode(llvmIR),
+          new TextEncoder().encode(llvmIR.ir),
         );
         return;
       }
 
       await this.runBackendCompilation(
-        llvmIR,
+        llvmIR.ir,
         semantic,
         this.args.target ?? "",
+        llvmIR.externs,
       );
     } catch (error: any) {
       console.error("Compilation failed:", error.message);

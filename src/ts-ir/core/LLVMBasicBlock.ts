@@ -15,7 +15,6 @@ export class LLVMBasicBlock {
     return this.tempCounter.nextTemp();
   }
 
-  // Helpers para classificação de tipos
   private isInteger(type: string): boolean {
     return /^i\d+$/.test(type);
   }
@@ -122,6 +121,7 @@ export class LLVMBasicBlock {
         const tmp = this.nextTemp();
         let instr;
 
+        // Fixed: Use correct extension/truncation based on bit sizes
         if (sourceRank < targetRank) {
           instr = `sext ${sourceType} ${value.value} to ${targetType}`;
         } else {
@@ -212,9 +212,11 @@ export class LLVMBasicBlock {
       const menorOp = r1 > r2 ? op2 : op1;
       const maiorOp = r1 > r2 ? op1 : op2;
       const tmp = this.nextTemp();
-      const instr = r1 < r2
-        ? `zext ${menorOp.type} ${menorOp.value} to ${maiorType}`
-        : `trunc ${menorOp.type} ${menorOp.value} to ${maiorType}`;
+      // Fixed: If we're converting from smaller to larger int, use sext not zext
+      // And make sure we're using the correct conversion direction
+      const instr = r1 > r2
+        ? `sext ${menorOp.type} ${menorOp.value} to ${maiorType}`
+        : `sext ${menorOp.type} ${menorOp.value} to ${maiorType}`;
       this.add(`${tmp} = ${instr}`);
       return r1 > r2
         ? {
@@ -352,7 +354,7 @@ export class LLVMBasicBlock {
   public divInst(op1: IRValue, op2: IRValue): IRValue {
     const { op1: lhs, op2: rhs, commonType } = this.convertOperands(op1, op2);
     const tmp = this.nextTemp();
-    const instr = this.isFloat(commonType) ? "fdiv" : "div";
+    const instr = this.isFloat(commonType) ? "fdiv" : "sdiv";
     this.add(`${tmp} = ${instr} ${commonType} ${lhs.value}, ${rhs.value}`);
     return { value: tmp, type: commonType };
   }

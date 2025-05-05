@@ -11,4 +11,4 @@ fn fibonacci(n: int): int
     return fibonacci(n - 1) + fibonacci(n - 2)
 }
 
-printf("FIB: %d\n", fibonacci(40))
+printf("%d\n", fibonacci(40))

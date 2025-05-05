@@ -11,6 +11,7 @@ export class FarpyCompiler {
     private instance: Semantic,
     private debug: boolean = false,
     private target: string = "",
+    private externs: string[] = [],
   ) {}
 
   private log(message: string): void {
@@ -22,6 +23,10 @@ export class FarpyCompiler {
     args: string[],
     errorMessage: string,
   ): Promise<void> {
+    if (this.debug) {
+      console.log(`Running: ${cmd} ${args.join(" ")}`);
+    }
+
     const command = new Deno.Command(cmd, { args });
     const { code, stderr } = await command.output();
 
@@ -38,6 +43,45 @@ export class FarpyCompiler {
     const tempFile = Deno.makeTempFileSync({ suffix });
     this.tempFiles.push(tempFile);
     return tempFile;
+  }
+
+  private async compileExternFiles(destFile: string): Promise<void> {
+    if (this.externs.length === 0) return;
+
+    this.log("Creating temporary file for external code...");
+    const file = this.createTempFile(".c");
+
+    const cleanExterns = this.externs.map((extern) => {
+      // Replace newlines in strings with \n
+      return extern.replace(/"([^"]*)"/g, (match) => {
+        return match.replace(/\n/g, "\\n");
+      });
+    });
+
+    Deno.writeTextFileSync(file, cleanExterns.join("\n"));
+
+    const fileBc = this.createTempFile(".ll");
+    const args = [
+      file,
+      "-S",
+      "-emit-llvm",
+      "-o",
+      fileBc,
+      "-Wno-implicit-function-declaration",
+    ];
+    if (this.target) args.push("-target", this.target);
+
+    await this.executeCommand(
+      "clang",
+      args,
+      `Error compiling extern file:`,
+    );
+
+    await this.executeCommand(
+      "llvm-link",
+      [destFile, fileBc, "-o", destFile],
+      "Error linking libraries:",
+    );
   }
 
   private async compileStdLibs(
@@ -108,6 +152,10 @@ export class FarpyCompiler {
       );
       this.log("Bitcode compilation completed.");
 
+      // First compile and link externs
+      await this.compileExternFiles(file_bc);
+
+      // Then compile and link stdlib
       const moduleArgs = await this.compileStdLibs(
         this.instance.stdLibs,
         file_bc,
@@ -136,28 +184,6 @@ export class FarpyCompiler {
       ];
       if (this.target) args.push("-target", this.target);
       if (this.target) this.log("Compiling to target: " + this.target);
-
-      if (this.debug) {
-        const test = [
-          "-S",
-          "-emit-llvm",
-          file_bc,
-          "-o",
-          "debug.ll",
-          ...moduleArgs,
-        ];
-
-        this.log("Compiling to LLVM IR for debugging...");
-        this.log(`Command: clang ${test.join(" ")}`);
-
-        await this.executeCommand(
-          "clang",
-          test,
-          "Error generating llvm-ir:",
-        );
-
-        this.log("LLVM IR generation completed. File: debug.ll\n");
-      }
 
       await this.executeCommand(
         "clang",

@@ -2,7 +2,7 @@ import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
 import { Keywords, Loc, NativeValue, Token, TokenType } from "./token.ts";
 
 export class Lexer {
-  private source: string;
+  public source: string;
   private file: string;
   protected line: number = 1;
   protected offset: number = 0; // Offset global
@@ -42,6 +42,7 @@ export class Lexer {
     "||": TokenType.OR,
     "!=": TokenType.NOT_EQUALS,
     "..": TokenType.RANGE,
+    "->": TokenType.ARROW,
   };
 
   public constructor(
