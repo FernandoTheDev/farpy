@@ -12,6 +12,7 @@ import {
   ElifStatement,
   ElseStatement,
   Expr,
+  ExternStatement,
   ForCStyleStatement,
   ForRangeStatement,
   FunctionArgs,
@@ -26,6 +27,7 @@ import {
   VariableDeclaration,
 } from "./ast.ts";
 import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
+import { CParser } from "./cparser.ts";
 
 type InfixParseFn = (left: Expr) => Expr;
 
@@ -130,6 +132,8 @@ export class Parser {
         return this.parseIfStatement();
       case TokenType.FOR:
         return this.parseForStatement();
+      case TokenType.EXTERN:
+        return this.parseExternStatement();
       case TokenType.IDENTIFIER: {
         const name = token.value!.toString();
         if (this.peek().kind === TokenType.LPAREN) {
@@ -138,6 +142,16 @@ export class Parser {
         if (this.peek().kind === TokenType.EQUALS) {
           return this.parseAssignment(AST_IDENTIFIER(name, token.loc));
         }
+
+        if (
+          this.peek().kind === TokenType.IDENTIFIER &&
+          this.next() != false
+        ) {
+          if ((this.next() as Token).kind === TokenType.EQUALS) {
+            return this.parseCVarDeclaration();
+          }
+        }
+
         return AST_IDENTIFIER(name, token.loc);
       }
       case TokenType.LPAREN: {
@@ -153,6 +167,77 @@ export class Parser {
         throw new Error(`No prefix parse function for ${token.value}`);
     }
   }
+
+  private parseExternStatement(): ExternStatement {
+    const start = this.previous();
+    const language = this.consume(
+      TokenType.STRING,
+      "A string is expected to identify the target language.",
+    );
+
+    /* TODO if (this.match(TokenType.FROM)) { } */
+    const end = this.consume(
+      TokenType.START,
+      "Expected 'start' after language target.",
+    );
+    const source: string[] = [];
+
+    while (!this.isAtEnd() && this.peek().kind != TokenType.END) {
+      const peek = this.advance();
+
+      if (peek.kind == TokenType.STRING) {
+        source.push(`"${peek.value as string}"`);
+        continue;
+      }
+
+      source.push(peek.value as string);
+    }
+
+    const src = source.join(" ");
+    const cparserValue = new CParser().parseString(src);
+
+    this.consume(
+      TokenType.END,
+      "Expected 'end' after block code.",
+    );
+
+    return {
+      kind: "ExternStatement",
+      functions: cparserValue.functions,
+      defines: cparserValue.defines,
+      includes: cparserValue.includes,
+      language: language.value as string,
+      type: "void",
+      value: "void",
+      code: src,
+      loc: this.makeLoc(start.loc, end.loc),
+    } as ExternStatement;
+  }
+
+  private parseCVarDeclaration(): VariableDeclaration {
+    const start = this.previous();
+    const type = start.value as TypesNative; // Type
+    const mutable: boolean = false;
+    const id = this.consume(
+      TokenType.IDENTIFIER,
+      "Expected identifier to variable name.",
+    );
+
+    this.consume(TokenType.EQUALS, "Expected '=' after variable name.");
+    const expr = this.parseExpression(Precedence.LOWEST);
+    const loc = this.makeLoc(start.loc, expr.loc);
+
+    return {
+      kind: "VariableDeclaration",
+      id: AST_IDENTIFIER(id.value!.toString(), id.loc),
+      type: type,
+      value: expr,
+      mutable: mutable,
+      loc: loc,
+    } as VariableDeclaration;
+  }
+
+  // private parseArrowExpression();
 
   private parseForStatement(): ForRangeStatement | ForCStyleStatement {
     const start = this.previous();
@@ -266,8 +351,8 @@ export class Parser {
 
     return {
       kind: miaKhalifa ? "IfStatement" : "ElifStatement",
-      type: returnStmt.type,
-      value: returnStmt.value,
+      type: returnStmt.type ?? "void",
+      value: returnStmt.value ?? "void",
       condition: condition,
       primary: body,
       secondary: bodySecond,
@@ -442,15 +527,38 @@ export class Parser {
 
   private parseNewExpression(): VariableDeclaration {
     const start = this.previous();
-    // const mutable: boolean = this.match(TokenType.MUT);
+    const mutable: boolean = this.match(TokenType.MUT);
     const id = this.consume(
       TokenType.IDENTIFIER,
       "Expect identifier to variable name.",
     );
+    let assignType = true;
+    let type: TypesNative | TypesNative[] = "null";
+
+    if (this.match(TokenType.COLON)) {
+      const types: TypesNative[] = [];
+      const firstTypeToken = this.consume(
+        TokenType.IDENTIFIER,
+        "Expected return type.",
+      );
+      types.push(firstTypeToken.value as TypesNative);
+
+      while (this.peek().kind === TokenType.PIPE) {
+        this.advance();
+        const typeToken = this.consume(
+          TokenType.IDENTIFIER,
+          "Expected type after '|'.",
+        );
+        types.push(typeToken.value as TypesNative);
+      }
+
+      type = types.length === 1 ? types[0] : types;
+      assignType = false;
+    }
 
     this.consume(TokenType.EQUALS, "Expect '=' after variable name.");
     const expr = this.parseExpression(Precedence.LOWEST);
-    const type = expr.type;
+    if (assignType) type = expr.type;
     const loc = this.makeLoc(start.loc, expr.loc);
 
     return {
@@ -458,7 +566,7 @@ export class Parser {
       id: AST_IDENTIFIER(id.value!.toString(), id.loc),
       type: type,
       value: expr,
-      mutable: true,
+      mutable: mutable,
       loc: loc,
     } as VariableDeclaration;
   }
@@ -550,6 +658,10 @@ export class Parser {
   // Helpers
   private isAtEnd(): boolean {
     return this.peek().kind === TokenType.EOF;
+  }
+  private next(): Token | boolean {
+    if (this.isAtEnd()) return false;
+    return this.tokens[this.pos + 1];
   }
   private peek(): Token {
     return this.tokens[this.pos];

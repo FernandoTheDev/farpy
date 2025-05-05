@@ -6,6 +6,7 @@ import {
   CallExpr,
   ElifStatement,
   ElseStatement,
+  ExternStatement,
   ForRangeStatement,
   FunctionArgs,
   FunctionDeclaration,
@@ -82,6 +83,7 @@ export class Semantic {
       } catch (_error: any) {
         // Ignore
         console.log("Error in semantic analysis:", _error.message);
+        break;
       }
     }
 
@@ -157,6 +159,9 @@ export class Semantic {
       case "FunctionDeclaration":
         analyzedNode = this.analyzeFnDeclaration(node as FunctionDeclaration);
         break;
+      case "ExternStatement":
+        analyzedNode = this.analyzeExternStatement(node as ExternStatement);
+        break;
       case "IncrementExpr":
         analyzedNode = this.analyzeIncrementExpr(node as IncrementExpr);
         break;
@@ -188,6 +193,41 @@ export class Semantic {
     return analyzedNode;
   }
 
+  private analyzeExternStatement(node: ExternStatement): ExternStatement {
+    for (const func of node.functions) {
+      const funcName = func.name;
+
+      if (this.availableFunctions.has(funcName)) {
+        this.reporter.addError(
+          node.loc,
+          `Function '${funcName}' is already defined`,
+        );
+        throw new Error(`Function '${funcName}' is already defined.`);
+      }
+
+      for (const arg of func.args) {
+        const llvmType = this.typeChecker.mapToLLVMType(arg.type);
+        arg.llvmType = llvmType;
+      }
+
+      const funcInfo = {
+        name: funcName,
+        params: func.args.map((arg) => ({
+          name: arg.name,
+          type: arg.type,
+          llvmType: this.typeChecker.mapToLLVMType(arg.type),
+        })),
+        returnType: func.returnType,
+        llvmType: this.typeChecker.mapToLLVMType(func.returnType),
+        isVariadic: false,
+        loc: node.loc,
+      };
+      this.availableFunctions.set(funcName, funcInfo as Function);
+    }
+
+    return node;
+  }
+
   private analyzeForRangeStmt(node: ForRangeStatement): ForRangeStatement {
     node.from = this.analyzeNode(node.from);
     node.to = this.analyzeNode(node.to);
@@ -195,7 +235,7 @@ export class Semantic {
     if (node.id) {
       this.defineSymbol({
         id: node.id.value,
-        sourceType: node.id.type,
+        sourceType: "int",
         llvmType: LLVMType.I32,
         mutable: true,
         initialized: false,
@@ -267,6 +307,16 @@ export class Semantic {
       );
     }
 
+    if (symbol.llvmType != analyzedValue.llvmType) {
+      this.reporter.addError(
+        node.loc,
+        `The variable was initially ${symbol.sourceType}, but you passed a value of type ${analyzedValue.type}.`,
+      );
+      throw new Error(
+        `The variable was initially ${symbol.sourceType}, but you passed a value of type ${analyzedValue.type}.`,
+      );
+    }
+
     if (!symbol.mutable) {
       this.reporter.addError(
         node.id.loc,
@@ -329,6 +379,7 @@ export class Semantic {
     }
 
     const returnType = node.type || "void";
+
     const returnLLVMType = this.typeChecker.mapToLLVMType(returnType);
 
     const funcInfo = {
@@ -638,20 +689,6 @@ export class Semantic {
     const left = this.analyzeNode(expr.left) as Expr;
     const right = this.analyzeNode(expr.right) as Expr;
 
-    if (
-      left.kind === "Identifier" &&
-      !this.identifiersUsed.has(left.value)
-    ) {
-      this.identifiersUsed.add(left.value);
-    }
-
-    if (
-      right.kind === "Identifier" &&
-      !this.identifiersUsed.has(right.value)
-    ) {
-      this.identifiersUsed.add(right.value);
-    }
-
     const resultType = this.typeChecker.checkBinaryExprTypes(
       left,
       right,
@@ -706,7 +743,7 @@ export class Semantic {
       );
     }
 
-    const actualType = analyzedValue.type ?? decl.type;
+    const actualType = decl.type ?? analyzedValue.type;
     const llvmType = this.typeChecker.mapToLLVMType(actualType);
 
     this.defineSymbol({

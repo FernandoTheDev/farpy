@@ -5,6 +5,19 @@ import { TypesNative } from "../frontend/values.ts";
 
 export class TypeChecker {
   private typeMap: Map<TypesNative | string, LLVMType>;
+  // Define type promotion hierarchy
+  private typeHierarchy: Record<string, number> = {
+    "i1": 1,
+    "bool": 1,
+    "int": 2,
+    "i32": 2,
+    "binary": 2,
+    "i64": 3,
+    "i128": 3,
+    "long": 3,
+    "float": 4,
+    "double": 5,
+  };
 
   constructor(private readonly reporter?: DiagnosticReporter) {
     this.typeMap = new Map();
@@ -14,6 +27,8 @@ export class TypeChecker {
   private initializeTypeMap(): void {
     this.typeMap.set("int", LLVMType.I32);
     this.typeMap.set("i32", LLVMType.I32);
+    this.typeMap.set("i64", LLVMType.I64);
+    this.typeMap.set("long", LLVMType.I128);
     this.typeMap.set("float", LLVMType.DOUBLE);
     this.typeMap.set("double", LLVMType.DOUBLE);
     this.typeMap.set("string", LLVMType.STRING);
@@ -22,6 +37,10 @@ export class TypeChecker {
     this.typeMap.set("null", LLVMType.PTR);
     this.typeMap.set("id", LLVMType.PTR);
     this.typeMap.set("void", LLVMType.VOID);
+    this.typeMap.set("i8*", LLVMType.STRING);
+    // C | const char *
+    this.typeMap.set("const char *", LLVMType.STRING);
+    this.typeMap.set("char *", LLVMType.STRING);
   }
 
   public mapToLLVMType(
@@ -29,8 +48,8 @@ export class TypeChecker {
   ): LLVMType {
     const llvmType = this.typeMap.get(sourceType as string);
     if (!llvmType) {
-      return LLVMType.DOUBLE;
-      // throw new Error(`Unsupported type mapping for ${sourceType}`);
+      // return LLVMType.DOUBLE;
+      throw new Error(`Unsupported type mapping for ${sourceType}`);
     }
     return llvmType;
   }
@@ -41,8 +60,12 @@ export class TypeChecker {
         return "i1";
       case LLVMType.I32:
         return "i32";
+      case LLVMType.I64:
+        return "i64";
       case LLVMType.DOUBLE:
         return "double";
+      case LLVMType.I128:
+        return "long";
       case LLVMType.STRING:
         return "i8*";
       case LLVMType.VOID:
@@ -55,8 +78,16 @@ export class TypeChecker {
   }
 
   public isNumericType(type: TypesNative | TypesNative[] | string): boolean {
-    return type === "int" || type === "float" || type === "binary" ||
-      type === "double";
+    const numericTypes = [
+      "int",
+      "i32",
+      "i64",
+      "long",
+      "float",
+      "double",
+      "binary",
+    ];
+    return numericTypes.includes(String(type));
   }
 
   public isFloat(
@@ -69,6 +100,20 @@ export class TypeChecker {
     );
   }
 
+  // Gets the promoted type between two numeric types
+  private promoteTypes(
+    leftType: TypesNative | string,
+    rightType: TypesNative | string,
+  ): TypesNative {
+    const leftRank = this.typeHierarchy[String(leftType)] || 0;
+    const rightRank = this.typeHierarchy[String(rightType)] || 0;
+
+    if (leftRank >= rightRank) {
+      return leftType as TypesNative;
+    }
+    return rightType as TypesNative;
+  }
+
   public areTypesCompatible(
     sourceType: TypesNative | TypesNative[] | string,
     targetType: TypesNative | TypesNative[] | string,
@@ -78,11 +123,20 @@ export class TypeChecker {
     const source = String(sourceType);
     const target = String(targetType);
 
+    // Check if both are numeric types
+    if (this.isNumericType(source) && this.isNumericType(target)) {
+      return true;
+    }
+
     const compatibilityMap: Record<string, string[]> = {
-      "int": ["float", "double"],
-      "float": ["double", "int", "i32"],
-      "double": ["int", "float", "i32"],
-      "binary": ["int"],
+      "int": ["float", "double", "i64", "long"],
+      "i32": ["float", "double", "i64", "long"],
+      "float": ["double", "int", "i32", "i64", "long"],
+      "double": ["int", "i32", "float", "i64", "long"],
+      "binary": ["int", "i32", "i64", "long"],
+      "i64": ["float", "double"],
+      "long": ["float", "double"],
+      "string": ["const char *", "char *"],
     };
 
     if (compatibilityMap[source]?.includes(target)) return true;
@@ -98,15 +152,31 @@ export class TypeChecker {
   ): TypesNative | TypesNative[] {
     const leftType: TypesNative | TypesNative[] | string = left.type;
     const rightType: TypesNative | TypesNative[] | string = right.type;
+
+    // Check compatibility between types
+    if (
+      leftType !== rightType && !this.areTypesCompatible(leftType, rightType)
+    ) {
+      this.reporter!.addError(
+        this.makeLoc(left.loc, right.loc),
+        `Operator '${operator}' cannot be applied to incompatible types '${leftType}' and '${rightType}'`,
+      );
+      throw new Error(
+        `Operator '${operator}' cannot be applied to types '${leftType}' and '${rightType}'`,
+      );
+    }
+
     switch (operator) {
       case "+":
         if (leftType === "string" || rightType === "string") {
           return "string";
         }
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
-            ? "float"
-            : "int";
+          // Return the promoted type based on hierarchy
+          return this.promoteTypes(
+            leftType as TypesNative,
+            rightType as TypesNative,
+          );
         }
         this.reporter!.addError(
           this.makeLoc(left.loc, right.loc),
@@ -120,9 +190,11 @@ export class TypeChecker {
       case "*":
       case "/":
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
-            ? "float"
-            : "int";
+          // Return the promoted type based on hierarchy
+          return this.promoteTypes(
+            leftType as TypesNative,
+            rightType as TypesNative,
+          );
         }
         if (right.value == 0 && operator === "/") {
           this.reporter!.addError(
@@ -140,9 +212,11 @@ export class TypeChecker {
         );
       case "%":
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
-            ? "float"
-            : "int";
+          // Return the promoted type based on hierarchy
+          return this.promoteTypes(
+            leftType as TypesNative,
+            rightType as TypesNative,
+          );
         }
         if (right.value == 0) {
           this.reporter!.addError(
@@ -160,9 +234,11 @@ export class TypeChecker {
         );
       case "**":
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return this.isFloat(leftType as TypesNative, rightType as TypesNative)
-            ? "float"
-            : "int";
+          // Return the promoted type based on hierarchy
+          return this.promoteTypes(
+            leftType as TypesNative,
+            rightType as TypesNative,
+          );
         }
         this.reporter!.addError(
           this.makeLoc(left.loc, right.loc),

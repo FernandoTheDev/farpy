@@ -1,16 +1,19 @@
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import {
+  AssignmentDeclaration,
   BinaryExpr,
   BinaryLiteral,
   CallExpr,
   ElifStatement,
   Expr,
+  ExternStatement,
   FloatLiteral,
   ForRangeStatement,
   FunctionDeclaration,
   Identifier,
   IfStatement,
   IntLiteral,
+  LLVMType,
   NullLiteral,
   Program,
   ReturnStatement,
@@ -35,6 +38,7 @@ export class LLVMIRGenerator {
   private variables: Map<string, IRValue> = new Map();
   private stringConstants: Map<string, IRValue> = new Map();
   private declaredFuncs: Set<string> = new Set();
+  public externs: string[] = []; // Bad
   private readonly reporter: DiagnosticReporter;
   private readonly debug: boolean;
   protected instance: Semantic;
@@ -115,9 +119,12 @@ export class LLVMIRGenerator {
           entry,
           main as LLVMFunction,
         );
-      // TODO
-      // case "AssignmentDeclaration":
-      //   return this.generateAssignment(node as AssignmentDeclaration, entry);
+      case "AssignmentDeclaration":
+        return this.generateAssignment(
+          node as AssignmentDeclaration,
+          entry,
+          main,
+        );
       case "FunctionDeclaration":
         return this.generateFnDeclaration(
           node as FunctionDeclaration,
@@ -127,6 +134,12 @@ export class LLVMIRGenerator {
       case "ForRangeStatement":
         return this.generateForRangeStmt(
           node as ForRangeStatement,
+          entry,
+          main,
+        );
+      case "ExternStatement":
+        return this.generateExternStatement(
+          node as ExternStatement,
           entry,
           main,
         );
@@ -153,12 +166,48 @@ export class LLVMIRGenerator {
     }
   }
 
-  // private generateForRangeStmt(
-  //   node: ForRangeStatement,
-  //   entry: LLVMBasicBlock,
-  //   main: LLVMFunction,
-  // ): IRValue {
-  // }
+  private generateExternStatement(
+    node: ExternStatement,
+    _entry: LLVMBasicBlock,
+    _main: LLVMFunction,
+  ): IRValue {
+    for (const fn of node.functions) {
+      const typeChecker = new TypeChecker(this.reporter);
+
+      const args = fn.args
+        .map((arg) => {
+          const argType = arg.llvmType
+            ? typeChecker.mapToLLVMType(arg.llvmType)
+            : typeChecker.mapToLLVMType(arg.type as LLVMType);
+
+          return argType;
+        })
+        .join(", ");
+
+      const returnType = typeChecker.mapToLLVMType(
+        fn.returnType as LLVMType,
+      );
+
+      this.module.addGlobal(
+        `declare ${returnType} @${fn.name}(${args})\n`,
+      );
+    }
+
+    this.externs.push(node.code);
+    return { value: "0", type: "i32" } as IRValue;
+  }
+
+  private generateAssignment(
+    node: AssignmentDeclaration,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
+    //
+    const value = this.generateNode(node.value, main);
+    const ptr = this.variables.get(node.id.value);
+    entry.storeInst(value, ptr!);
+    return ptr!;
+  }
 
   private generateForRangeStmt(
     node: ForRangeStatement,

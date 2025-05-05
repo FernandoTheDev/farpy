@@ -29,6 +29,10 @@ function createIOModule(): StdLibModule {
     .withParams("string")
     .variadic()
     .done()
+    // read_line(string)
+    .defineFunction("read_line")
+    .returns("string")
+    .done()
     // Build
     .defineFlags("-lc")
     .build();

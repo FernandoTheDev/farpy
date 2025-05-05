@@ -80,6 +80,7 @@ export class Optimizer {
       case "NullLiteral":
       case "Identifier":
       case "ImportStatement":
+      case "ExternStatement":
         return expr;
       default:
         this.reporter.addWarning(
