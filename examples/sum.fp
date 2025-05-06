@@ -1,8 +1,5 @@
 import "io"
-
-fn sum(x: int, y: int): int {
-    return x + y
-}
+import "sum.fp"
 
 new x = 2 ** 2
 new y = 1999

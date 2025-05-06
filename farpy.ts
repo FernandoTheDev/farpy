@@ -104,7 +104,7 @@ OPTIONS:
   --target=<target>       Specify target architecture (default: your architecture)
   --targeth               Show target architecture help`;
 
-class FarpyCompilerMain {
+export class FarpyCompilerMain {
   private fileName: string;
   private fileData: string;
   private readonly reporter: DiagnosticReporter;
@@ -250,8 +250,10 @@ class FarpyCompilerMain {
     debug: boolean,
   ): { ir: string; externs: string[] } {
     const llvmIrGen = LLVMIRGenerator.getInstance(this.reporter, debug);
+    const ir = llvmIrGen.generateIR(semanticAST, semantic, this.fileName);
+    llvmIrGen.resetInstance(); // Reset
     return {
-      ir: llvmIrGen.generateIR(semanticAST, semantic, this.fileName),
+      ir: ir,
       externs: llvmIrGen.externs,
     };
   }
@@ -289,6 +291,7 @@ class FarpyCompilerMain {
 
       const semantic = Semantic.getInstance(this.reporter);
       ast = semantic.semantic(ast);
+      semantic.resetInstance(); // Reset
 
       if (this.shouldOptimize()) {
         ast = this.runOptimizer(ast);

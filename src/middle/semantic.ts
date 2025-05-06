@@ -50,7 +50,7 @@ interface SymbolInfo {
 }
 
 export class Semantic {
-  private static instance: Semantic;
+  private static instance: Semantic | null;
   protected scopeStack: Map<string, SymbolInfo>[] = [];
   private typeChecker: TypeChecker;
   public availableFunctions: Map<string, StdLibFunction | Function> = new Map();
@@ -70,6 +70,10 @@ export class Semantic {
       Semantic.instance = new Semantic(reporter);
     }
     return Semantic.instance;
+  }
+
+  public resetInstance() {
+    Semantic.instance = null;
   }
 
   public semantic(program: Program): Program {
@@ -612,6 +616,7 @@ export class Semantic {
     }
 
     node.type = funcInfo.returnType as TypesNative;
+    node.llvmType = funcInfo.llvmType as LLVMType;
 
     if (
       !this.identifiersUsed.has(funcInfo.name)
@@ -620,13 +625,11 @@ export class Semantic {
     }
 
     for (let i = 0; i < node.arguments.length; i++) {
-      // Analisa o nó do argumento primeiro
       node.arguments[i] = this.analyzeNode(node.arguments[i]);
 
       const argType = node.arguments[i].type;
       const param = funcInfo.params[i];
 
-      // Se for função variádica e não tiver mais parâmetros definidos, continua
       if (param === undefined && funcInfo.isVariadic) {
         continue;
       }
@@ -635,14 +638,12 @@ export class Semantic {
         ? param as TypesNative
         : param.type as TypesNative;
 
-      // Caso especial para conversão para string
       if (argType !== "string" && paramType === "string") {
         node.arguments[i].type = "string";
         node.arguments[i].value = String(node.arguments[i].value);
         continue;
       }
 
-      // Verifica compatibilidade de tipos
       if (!this.typeChecker.areTypesCompatible(argType, paramType)) {
         this.reporter.addError(
           node.arguments[i].loc,
@@ -657,7 +658,6 @@ export class Semantic {
         );
       }
 
-      // Se os tipos são compatíveis mas diferentes, realiza a conversão
       if (
         this.typeChecker.areTypesCompatible(argType, paramType) &&
         argType !== paramType
@@ -743,7 +743,7 @@ export class Semantic {
       );
     }
 
-    const actualType = decl.type ?? analyzedValue.type;
+    const actualType = analyzedValue.type;
     const llvmType = this.typeChecker.mapToLLVMType(actualType);
 
     this.defineSymbol({

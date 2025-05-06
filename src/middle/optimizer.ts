@@ -9,6 +9,7 @@ import {
   BinaryLiteral,
   CallExpr,
   ElifStatement,
+  ElseStatement,
   Expr,
   FloatLiteral,
   ForRangeStatement,
@@ -54,6 +55,8 @@ export class Optimizer {
             ? expr as IfStatement
             : expr as ElifStatement,
         );
+      case "ElseStatement":
+        return this.optimizeElseStmt(expr as ElseStatement);
       case "BinaryExpr":
         return this.optimizeBinaryExpr(expr as BinaryExpr);
       case "VariableDeclaration":
@@ -129,6 +132,17 @@ export class Optimizer {
     }
 
     return fnDecl;
+  }
+
+  private optimizeElseStmt(node: ElseStatement): ElseStatement {
+    const body = node.primary;
+    node.primary = [];
+
+    for (const expr of body) {
+      node.primary.push(this.optimize(expr));
+    }
+
+    return node;
   }
 
   private optimizeIfStmt(
