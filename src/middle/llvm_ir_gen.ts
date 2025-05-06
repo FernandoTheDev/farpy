@@ -33,7 +33,7 @@ import { StdLibFunction } from "./std_lib_module_builder.ts";
 import { TypeChecker } from "./type_checker.ts";
 
 export class LLVMIRGenerator {
-  private static instance: LLVMIRGenerator;
+  private static instance: LLVMIRGenerator | null;
   private module: LLVMModule = new LLVMModule();
   private variables: Map<string, IRValue> = new Map();
   private stringConstants: Map<string, IRValue> = new Map();
@@ -57,6 +57,10 @@ export class LLVMIRGenerator {
       LLVMIRGenerator.instance = new LLVMIRGenerator(reporter, debug);
     }
     return LLVMIRGenerator.instance;
+  }
+
+  public resetInstance() {
+    LLVMIRGenerator.instance = null;
   }
 
   public generateIR(
