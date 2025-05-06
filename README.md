@@ -79,7 +79,8 @@ Please ensure your code follows the existing style and includes tests for new fu
 
 ## Project Status
 
-- **In Development**: The compiler core and IR generator are functional, but the binary is not yet self-contained.
+- **In Development**: We have already generated optimized and fast binary (faster than many languages ​​out there), we are currently adding features and resources that are not ready yet. Follow the examples folder to see what is already possible to do.
+
 - **Planned**:
   - Support for Windows and macOS platforms.
   - Enhancements to the standard library.
