@@ -1,3 +1,12 @@
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
+import { Lexer } from "../frontend/lexer/lexer.ts";
 import { Loc, TokenType } from "../frontend/lexer/token.ts";
 
 export enum DiagnosticSeverity {
@@ -31,6 +40,7 @@ const colors = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
+  italic: "\x1b[3m",
 
   // Text colors
   white: "\x1b[37m",
@@ -50,6 +60,10 @@ const colors = {
   cyan: "\x1b[36m",
   lightCyan: "\x1b[96m",
   gray: "\x1b[90m",
+
+  orange: "\x1b[38;5;208m",
+  lightOrange: "\x1b[38;5;214m",
+  darkOrange: "\x1b[38;5;202m",
 
   // Background colors
   bgRed: "\x1b[41m",
@@ -72,45 +86,93 @@ export class DiagnosticReporter {
     }
   }
 
-  /**
-   * Obtém a cor apropriada para um tipo de token
-   */
   private getTokenColor(tokenType: TokenType): string {
     if (!this.options.colored || !this.options.highlightTokens) {
       return "";
     }
 
-    // Keywords (azul)
-    if (tokenType >= TokenType.NEW && tokenType <= TokenType.BREAK) {
-      return `${colors.bold}${colors.blue}`;
-    } // Identifier (ciano)
-    else if (tokenType === TokenType.IDENTIFIER) {
-      return `${colors.lightCyan}`;
-    } // Literals (verde)
-    else if (tokenType >= TokenType.STRING && tokenType <= TokenType.NULL) {
-      return `${colors.bold}${colors.green}`;
-    } // Operators (magenta)
-    else if (
-      (tokenType >= TokenType.EQUALS && tokenType <= TokenType.OR) ||
-      tokenType === TokenType.NOT
-    ) {
-      return `${colors.bold}${colors.magenta}`;
-    } // Delimiters (amarelo)
-    else if (
-      tokenType === TokenType.COMMA ||
-      tokenType === TokenType.COLON ||
-      tokenType === TokenType.SEMICOLON ||
-      tokenType === TokenType.DOT
-    ) {
-      return `${colors.yellow}`;
-    } // Brackets and Parentheses (cinza claro)
-    else if (
-      tokenType >= TokenType.LPAREN && tokenType <= TokenType.RBRACKET
-    ) {
-      return `${colors.bold}${colors.gray}`;
-    }
+    switch (tokenType) {
+      // Keywords
+      case TokenType.NEW:
+      case TokenType.MUT:
+      case TokenType.IF:
+      case TokenType.ELIF:
+      case TokenType.ELSE:
+      case TokenType.FOR:
+      case TokenType.WHILE:
+      case TokenType.FN:
+      case TokenType.RETURN:
+      case TokenType.IMPORT:
+      case TokenType.AS:
+      case TokenType.BREAK:
+      case TokenType.EXTERN:
+      case TokenType.START:
+      case TokenType.END:
+      case TokenType.STRUCT:
+        return `${colors.bold}${colors.darkOrange}`;
 
-    return "";
+      // Identifier
+      case TokenType.IDENTIFIER:
+        return `${colors.white}`;
+
+      // Types/Literals
+      case TokenType.STRING:
+        return `${colors.green}`;
+
+      case TokenType.INT:
+      case TokenType.FLOAT:
+      case TokenType.BINARY:
+        return `${colors.magenta}`;
+
+      case TokenType.NULL:
+        return `${colors.magenta}`;
+
+      // Operators
+      case TokenType.EQUALS:
+      case TokenType.PLUS:
+      case TokenType.INCREMENT:
+      case TokenType.MINUS:
+      case TokenType.DECREMENT:
+      case TokenType.SLASH:
+      case TokenType.ASTERISK:
+      case TokenType.EXPONENTIATION:
+      case TokenType.PERCENT:
+      case TokenType.REMAINDER:
+      case TokenType.EQUALS_EQUALS:
+      case TokenType.NOT_EQUALS:
+      case TokenType.GREATER_THAN:
+      case TokenType.LESS_THAN:
+      case TokenType.GREATER_THAN_OR_EQUALS:
+      case TokenType.LESS_THAN_OR_EQUALS:
+      case TokenType.AND:
+      case TokenType.OR:
+      case TokenType.PIPE:
+      case TokenType.NOT:
+      case TokenType.RANGE:
+      case TokenType.STEP:
+      case TokenType.ARROW:
+        return `${colors.lightOrange}`;
+
+      // Delimiters
+      case TokenType.COMMA:
+      case TokenType.COLON:
+      case TokenType.SEMICOLON:
+      case TokenType.DOT:
+        return `${colors.gray}`;
+
+      // Brackets and Parentheses
+      case TokenType.LPAREN:
+      case TokenType.RPAREN:
+      case TokenType.LBRACE:
+      case TokenType.RBRACE:
+      case TokenType.LBRACKET:
+      case TokenType.RBRACKET:
+        return `${colors.yellow}`;
+
+      // Default
+      default:
+        return `${colors.white}`;
+    }
   }
 
   makeSuggestion(message: string, replacement?: string): Suggestion {
@@ -120,9 +182,6 @@ export class DiagnosticReporter {
     };
   }
 
-  /**
-   * Adiciona um erro ao reporter
-   */
   addError(
     loc: Loc,
     message: string,
@@ -140,9 +199,6 @@ export class DiagnosticReporter {
     });
   }
 
-  /**
-   * Adiciona um aviso ao reporter
-   */
   addWarning(
     loc: Loc,
     message: string,
@@ -158,12 +214,9 @@ export class DiagnosticReporter {
     });
   }
 
-  /**
-   * Formata um único diagnóstico em string
-   */
   formatDiagnostic(diagnostic: Diagnostic): string {
     const { loc, message, severity, suggestions, tokenType } = diagnostic;
-    const { file, line, line_string, start, end } = loc;
+    const { file, line, line_string, start, end, dir } = loc;
 
     const reset = this.options.colored ? colors.reset : "";
     const severityColor = severity === DiagnosticSeverity.ERROR
@@ -184,37 +237,68 @@ export class DiagnosticReporter {
 
     let output = "";
 
-    // Cabeçalho do diagnóstico
     output +=
       `${headerColor}${severityText}${reset}: ${messageColor}${message}${reset}\n`;
     output += `  ${locationColor}→ ${file}:${line}${reset}\n\n`;
 
-    // Adiciona número da linha com padding
     const lineNumberColor = this.options.colored ? colors.dim : "";
     output += `${lineNumberColor}${line.toString().padStart(6)} |${reset} `;
 
-    // Coloração de tokens se disponível e habilitada
     if (this.options.highlightTokens && this.options.colored) {
-      // Esse é um exemplo simples - uma implementação real precisaria de analisador léxico
-      // Aqui só estamos colorindo o token problemático
-      const parts = [
-        line_string.substring(0, start),
-        line_string.substring(start, end),
-        line_string.substring(end),
-      ];
+      const tokens = new Lexer(file, line_string, dir, this).tokenize(true);
 
-      const tokenColor = tokenType !== undefined
-        ? this.getTokenColor(tokenType)
-        : colors.red;
-      output += parts[0];
-      output += tokenColor ? `${tokenColor}${parts[1]}${reset}` : parts[1];
-      output += parts[2];
+      if (tokens && tokens.length > 0) {
+        tokens.sort((a, b) => a.loc.start - b.loc.start);
+
+        let coloredLine = "";
+        let lastPos = 0;
+
+        for (const token of tokens) {
+          if (token.loc.start > lastPos) {
+            if (line_string.substring(lastPos, token.loc.start) != '"') {
+              coloredLine += line_string.substring(
+                lastPos,
+                token.loc.start,
+              );
+            }
+          }
+
+          if (token.kind == TokenType.STRING) {
+            token.value = `"${token.value}"`;
+            token.value = (token.value as string).replaceAll("\n", "\\n");
+          }
+
+          const tokenColor = this.getTokenColor(token.kind);
+          coloredLine += `${tokenColor}${token.value}${reset}`;
+
+          lastPos = token.loc.end;
+        }
+
+        if (lastPos < line_string.length) {
+          coloredLine += line_string.substring(lastPos);
+        }
+
+        output += coloredLine;
+      } else {
+        const errorTokenColor = tokenType !== undefined
+          ? this.getTokenColor(tokenType)
+          : `${colors.bold}${colors.red}`;
+
+        const parts = [
+          line_string.substring(0, start),
+          line_string.substring(start, end),
+          line_string.substring(end),
+        ];
+
+        output += parts[0];
+        output += `${errorTokenColor}${parts[1]}${reset}`;
+        output += parts[2];
+      }
     } else {
       output += line_string;
     }
     output += "\n";
 
-    // Adiciona o sublinhado
     const padding = " ".repeat(6);
     const prefixSpaces = " ".repeat(start);
     const underlineLength = Math.max(1, end - start);
@@ -230,7 +314,6 @@ export class DiagnosticReporter {
       : underline;
     output += "\n";
 
-    // Adiciona as sugestões, se houverem e se estiverem habilitadas
     if (this.options.showSuggestions && suggestions && suggestions.length > 0) {
       const suggestionLabelColor = this.options.colored
         ? `${colors.bold}${colors.green}`
@@ -251,9 +334,6 @@ export class DiagnosticReporter {
     return output;
   }
 
-  /**
-   * Formata e retorna todos os diagnósticos como uma string
-   */
   formatDiagnostics(): string {
     if (this.diagnostics.length === 0) {
       return "";
@@ -264,9 +344,6 @@ export class DiagnosticReporter {
       .join("\n\n");
   }
 
-  /**
-   * Imprime todos os diagnósticos no console
-   */
   printDiagnostics(): void {
     const output = this.formatDiagnostics();
     if (output) {
@@ -274,59 +351,38 @@ export class DiagnosticReporter {
     }
   }
 
-  /**
-   * Verifica se há erros nos diagnósticos
-   */
   hasErrors(): boolean {
     return this.diagnostics.some(
       (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
     );
   }
 
-  /**
-   * Verifica se há avisos nos diagnósticos
-   */
   hasWarnings(): boolean {
     return this.diagnostics.some(
       (diagnostic) => diagnostic.severity === DiagnosticSeverity.WARNING,
     );
   }
 
-  /**
-   * Retorna a contagem de erros
-   */
   getErrorCount(): number {
     return this.diagnostics.filter(
       (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
     ).length;
   }
 
-  /**
-   * Retorna a contagem de avisos
-   */
   getWarningCount(): number {
     return this.diagnostics.filter(
       (diagnostic) => diagnostic.severity === DiagnosticSeverity.WARNING,
     ).length;
   }
 
-  /**
-   * Limpa todos os diagnósticos
-   */
   clear(): void {
     this.diagnostics = [];
   }
 
-  /**
-   * Atualiza as opções do reporter
-   */
   updateOptions(options: Partial<DiagnosticOptions>): void {
     this.options = { ...this.options, ...options };
   }
 
-  /**
-   * Retorna um resumo dos diagnósticos
-   */
   getSummary(): string {
     const errorCount = this.getErrorCount();
     const warningCount = this.getWarningCount();

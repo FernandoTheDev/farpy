@@ -1,3 +1,11 @@
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
 import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
 import { Keywords, Loc, NativeValue, Token, TokenType } from "./token.ts";
 
@@ -55,13 +63,13 @@ export class Lexer {
     this.source = source;
   }
 
-  public tokenize(): Token[] | null {
+  public tokenize(ignoreNewLine: boolean = false): Token[] | null {
     try {
       while (this.offset < this.source.length) {
         this.start = this.offset - this.lineOffset; // Sets start to local offset
         const char = this.source[this.offset];
 
-        if (char === "\n") {
+        if (char === "\n" && !ignoreNewLine) {
           this.line++;
           this.offset++;
           this.lineOffset = this.offset;

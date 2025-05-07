@@ -1,3 +1,11 @@
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
 export enum TokenType {
   // Keywords
   NEW, // new x = EXPR 0
@@ -63,6 +71,7 @@ export enum TokenType {
   EXTERN, // keyword 52
   START, // start 53
   END, // start 54
+  STRUCT, // struct 55
 }
 
 export type NativeValue =
@@ -106,4 +115,5 @@ export const Keywords: Record<string, TokenType> = {
   "extern": TokenType.EXTERN,
   "start": TokenType.START,
   "end": TokenType.END,
+  "struct": TokenType.STRUCT,
 };

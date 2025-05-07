@@ -15,7 +15,7 @@ import { FarpyCompiler } from "./src/backend/compiler.ts";
 import { DiagnosticReporter } from "./src/error/diagnosticReporter.ts";
 import { Token } from "./src/frontend/lexer/token.ts";
 import { Optimizer } from "./src/middle/optimizer.ts";
-import { ExternStatement, Program } from "./src/frontend/parser/ast.ts";
+import { Program } from "./src/frontend/parser/ast.ts";
 import { DeadCodeAnalyzer } from "./src/middle/dead_code_analyzer.ts";
 
 const ARG_CONFIG = {
@@ -207,7 +207,7 @@ export class FarpyCompilerMain {
     return tokens as Token[];
   }
 
-  private runParser(tokens: Token[]): any {
+  private runParser(tokens: Token[]): Program | null {
     const ast = new Parser(tokens, this.reporter).parse();
 
     if (!this.checkErrorsAndWarnings()) return null;
@@ -215,7 +215,7 @@ export class FarpyCompilerMain {
     return ast;
   }
 
-  private handleAstJson(ast: any): boolean {
+  private handleAstJson(ast: Program): boolean {
     if (this.args["ast-json"]) {
       Deno.writeTextFileSync(
         this.args["ast-json-save"],
@@ -226,7 +226,10 @@ export class FarpyCompilerMain {
     return false;
   }
 
-  private runDeadCodeAnalyzer(ast: Program, semantic: Semantic): any {
+  private runDeadCodeAnalyzer(
+    ast: Program,
+    semantic: Semantic,
+  ): Program | null {
     const analyzer = new DeadCodeAnalyzer(semantic, this.reporter).analyze(
       ast,
     );
@@ -236,7 +239,7 @@ export class FarpyCompilerMain {
     return analyzer;
   }
 
-  private runOptimizer(ast: Program): any {
+  private runOptimizer(ast: Program): Program | null {
     const optimizer = new Optimizer(this.reporter).resume(ast);
 
     if (!this.checkErrorsAndWarnings()) return null;
@@ -245,8 +248,8 @@ export class FarpyCompilerMain {
   }
 
   private generateLLVMIR(
-    semanticAST: any,
-    semantic: any,
+    semanticAST: Program,
+    semantic: Semantic,
     debug: boolean,
   ): { ir: string; externs: string[] } {
     const llvmIrGen = LLVMIRGenerator.getInstance(this.reporter, debug);
@@ -297,10 +300,10 @@ export class FarpyCompilerMain {
         ast = this.runOptimizer(ast);
       }
 
-      const final_ast = this.runDeadCodeAnalyzer(ast, semantic);
+      const final_ast = this.runDeadCodeAnalyzer(ast!, semantic);
 
       const llvmIR = this.generateLLVMIR(
-        final_ast,
+        final_ast!,
         semantic,
         this.isDebug(),
       );

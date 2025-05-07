@@ -1,3 +1,11 @@
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import { Loc } from "../frontend/lexer/token.ts";
 import {
@@ -157,7 +165,14 @@ export class Optimizer {
 
     if (node.secondary !== null) {
       // @ts-ignore
-      node.secondary = this.optimize(node.secondary);
+      node.secondary = this.optimize(node.secondary); /**
+       * Farpy - A programming language
+       *
+       * Copyright (c) 2025 Fernando (FernandoTheDev)
+       *
+       * This software is licensed under the MIT License.
+       * See the LICENSE file in the project root for full license information.
+       */
     }
 
     return node;
