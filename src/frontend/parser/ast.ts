@@ -1,3 +1,11 @@
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
 import { Loc } from "../lexer/token.ts";
 import { TypesNative } from "../values.ts";
 import { Define, Function } from "./cparser.ts";

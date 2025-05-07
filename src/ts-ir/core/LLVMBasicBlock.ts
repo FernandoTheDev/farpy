@@ -1,4 +1,11 @@
-import { TempCounter } from "./TempCounter.ts";
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
 import { IRValue } from "../types/IRTypes.ts";
 import { LLVMFunction } from "./LLVMFunction.ts";
 

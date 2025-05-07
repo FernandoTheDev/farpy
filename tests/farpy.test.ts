@@ -1,3 +1,11 @@
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
 import { assertEquals } from "jsr:@std/assert";
 import { FarpyCompilerMain } from "../farpy.ts";
 

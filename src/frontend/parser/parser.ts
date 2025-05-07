@@ -1,3 +1,11 @@
+/**
+ * Farpy - A programming language
+ *
+ * Copyright (c) 2025 Fernando (FernandoTheDev)
+ *
+ * This software is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
 import { TypesNative } from "../values.ts";
 import { Loc, Token, TokenType } from "../lexer/token.ts";
 import {
@@ -259,10 +267,19 @@ export class Parser {
       inclusive = true;
     }
 
-    const to = this.consume(
-      TokenType.INT,
-      "A literal after the '..' was expected.",
-    );
+    if (
+      this.peek().kind != TokenType.INT &&
+      this.peek().kind != TokenType.IDENTIFIER
+    ) {
+      // Error
+      this.reporter.addError(
+        this.peek().loc,
+        "A literal or identifier after the '..' was expected.",
+      );
+      throw Error("A literal or identifier after the '..' was expected.");
+    }
+
+    const to = this.advance();
     let negative = false;
 
     if (this.match(TokenType.STEP)) {
@@ -304,7 +321,9 @@ export class Parser {
         )
         : null,
       from: AST_INT(Number(from.value), from.loc),
-      to: AST_INT(Number(to.value), to.loc),
+      to: to.kind == TokenType.INT
+        ? AST_INT(Number(to.value), to.loc)
+        : AST_IDENTIFIER(String(to.value), to.loc),
       inclusive: inclusive,
       block: body,
       type: "null",
