@@ -78,9 +78,6 @@ Execute:
 ```bash
 # Linux
 ./hello
-
-# Windows
-hello.exe
 ```
 
 Saída:
@@ -99,22 +96,23 @@ Em Farpy há variáveis **imutáveis** e **mutáveis**, com ou sem tipagem expl�
 
 ```farpy
 // Com tipagem explícita
-ew mut name: string = "Fernando"
+new mut name: string = "Fernando"
 
 // Inferência de tipo
-ew mut name = "Fernando"
+new mut name = "Fernando"
 ```
 
 ### Imutáveis
 
 ```farpy
 // Com tipagem explícita
-ew name: string = "Fernando"
+new name: string = "Fernando"
 
 // Inferência de tipo
-ew name = "Fernando"
+new name = "Fernando"
 
-// Estilo C\string name = "Fernando"
+// Estilo C
+string name = "Fernando"
 ```
 
 ---
@@ -124,7 +122,7 @@ ew name = "Fernando"
 Declare todos os parâmetros e retorne tipado:
 
 ```farpy
-fn hello(): void {
+fn hello() {
   // Sem retorno explícito
 }
 
@@ -159,7 +157,7 @@ for 0..100 {
   // ...
 }
 
-// 0 até 100 (inclusive)
+// 0 até 100
 for 0..=100 {
   // ...
 }
@@ -225,7 +223,7 @@ float    // alias double
 double
 string
 bool
-binary   // bytes brutos
+binary   // 0b01
 null
 void     // sem retorno
 ```

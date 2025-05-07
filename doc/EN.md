@@ -64,7 +64,7 @@ Create `hello.fp` with:
 ```farpy
 import "io"
 
-printf("Olá Mundo\n")
+printf("Hello World\n")
 ```
 
 Compile and generate the executable:
@@ -78,15 +78,12 @@ Run:
 ```bash
 # Linux
 ./hello
-
-# Windows
-hello.exe
 ```
 
 Output:
 
 ```
-Olá Mundo
+Hello World
 ```
 
 ---
@@ -125,7 +122,7 @@ string name = "Fernando"
 Declare all parameters and specify a return type:
 
 ```farpy
-fn hello(): void {
+fn hello() {
   // No explicit return
 }
 
@@ -160,7 +157,7 @@ for 0..100 {
   // ...
 }
 
-// 0 to 100 inclusive
+// 0 to 100
 for 0..=100 {
   // ...
 }
@@ -226,7 +223,7 @@ float    // alias for double
 double
 string
 bool
-binary   // raw bytes
+binary   // 0b01
 null
 void     // no return
 ```
