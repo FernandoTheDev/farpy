@@ -189,19 +189,23 @@ export class Parser {
       "Expected 'start' after language target.",
     );
     const source: string[] = [];
+    let last_line: number = 0;
 
     while (!this.isAtEnd() && this.peek().kind != TokenType.END) {
       const peek = this.advance();
 
-      if (peek.kind == TokenType.STRING) {
-        source.push(`"${peek.value as string}"`);
-        continue;
-      }
+      // if (peek.kind == TokenType.STRING) {
+      //   source.push(`"${peek.value as string}"`);
+      //   continue;
+      // }
 
-      source.push(peek.value as string);
+      if (peek.loc.line > last_line) {
+        last_line = peek.loc.line;
+        source.push(peek.loc.line_string as string);
+      }
     }
 
-    const src = source.join(" ");
+    const src = source.join("\n");
     const cparserValue = new CParser().parseString(src);
 
     this.consume(
