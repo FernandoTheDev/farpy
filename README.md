@@ -6,6 +6,8 @@
 
 Farpy is a statically-typed, compiled programming language designed for performance, safety, and simplicity. Written entirely in TypeScript, Farpy generates a lean and highly optimized binary without relying on external dependencies. Its standard library is implemented in C to maximize execution speed and maintain a compact footprint.
 
+**Complete documentation**: [Doc](doc/) | **Version:** `0.0.1`
+
 ## Key Features
 
 - **Compiled Language**: Converts high-level Farpy code directly into native machine code through manual LLVM IR generation.
