@@ -27,6 +27,7 @@ const ARG_CONFIG = {
     o: "output",
     eir: "emit-llvm-ir",
     opt: "optimize",
+    dc: "dead-code",
   },
   boolean: [
     "help",
@@ -37,6 +38,7 @@ const ARG_CONFIG = {
     "targeth",
     "optmize",
     "g",
+    "dead-code",
   ],
   string: ["ast-json-save", "output", "target"],
   default: { "ast-json-save": "ast.json", "output": "a.out" },
@@ -144,6 +146,10 @@ export class FarpyCompilerMain {
 
   private showTargetHelp(): void {
     console.log(TARGET_HELP_MESSAGE);
+  }
+
+  private shouldDeadCode(): boolean {
+    return this.args.dc === true;
   }
 
   private shouldOptimize(): boolean {
@@ -300,10 +306,12 @@ export class FarpyCompilerMain {
         ast = this.runOptimizer(ast);
       }
 
-      const final_ast = this.runDeadCodeAnalyzer(ast!, semantic);
+      if (this.shouldDeadCode()) {
+        ast = this.runDeadCodeAnalyzer(ast!, semantic);
+      }
 
       const llvmIR = this.generateLLVMIR(
-        final_ast!,
+        ast!,
         semantic,
         this.isDebug(),
       );

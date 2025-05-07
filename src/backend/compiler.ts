@@ -60,7 +60,6 @@ export class FarpyCompiler {
     const file = this.createTempFile(".c");
 
     const cleanExterns = this.externs.map((extern) => {
-      // Replace newlines in strings with \n
       return extern.replace(/"([^"]*)"/g, (match) => {
         return match.replace(/\n/g, "\\n");
       });

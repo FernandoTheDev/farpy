@@ -1,5 +1,9 @@
 import "io"
 
+fn farpy(msg: string) {
+    printf("Hello %s\n", msg)
+}
+
 extern "C" start
     int sum(int x, int y) {
         printf("C: Hello\n");
@@ -7,7 +11,7 @@ extern "C" start
     }
 
     void hello(const char *n) {
-        printf("Hello %s\n", n);
+        farpy(n);
     }
 end
 

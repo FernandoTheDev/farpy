@@ -72,6 +72,7 @@ export enum TokenType {
   START, // start 53
   END, // start 54
   STRUCT, // struct 55
+  C_DIRECTIVE, // # 56
 }
 
 export type NativeValue =
