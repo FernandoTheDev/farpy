@@ -316,6 +316,7 @@ export class LLVMBasicBlock {
       default:
         // For struct types or user-defined types, we would need more information
         // For now, default to 8 bytes (pointer size on 64-bit systems)
+        console.log("Where");
         if (baseType.startsWith("%") || baseType.startsWith("@")) {
           return 8;
         }
@@ -417,6 +418,65 @@ export class LLVMBasicBlock {
       `${tmp} = getelementptr inbounds ${arrayType}, ${arrayType}* ${globalLabel}, i32 0, i32 0`,
     );
     return { value: tmp, type: `${baseType}*` };
+  }
+
+  public fnegInst(operand: IRValue): IRValue {
+    if (!this.isFloat(operand.type)) {
+      throw new Error(
+        `Erro fneg: tipo não é ponto flutuante (${operand.type})`,
+      );
+    }
+    const tmp = this.nextTemp();
+    this.add(`${tmp} = fneg ${operand.type} ${operand.value}`);
+    return { value: tmp, type: operand.type };
+  }
+
+  public xorInst(left: IRValue, right: IRValue): IRValue {
+    const { op1: lhs, op2: rhs, commonType } = this.convertOperands(
+      left,
+      right,
+    );
+    if (!this.isInteger(commonType)) {
+      throw new Error(`Erro xor: tipo não é inteiro (${commonType})`);
+    }
+    const tmp = this.nextTemp();
+    this.add(`${tmp} = xor ${commonType} ${lhs.value}, ${rhs.value}`);
+    return { value: tmp, type: commonType };
+  }
+
+  public fcmpInst(
+    predicate:
+      | "oeq"
+      | "ogt"
+      | "oge"
+      | "olt"
+      | "ole"
+      | "one"
+      | "ord"
+      | "ueq"
+      | "ugt"
+      | "uge"
+      | "ult"
+      | "ule"
+      | "une"
+      | "uno"
+      | "true"
+      | "false",
+    left: IRValue,
+    right: IRValue,
+  ): IRValue {
+    const { op1: lhs, op2: rhs, commonType } = this.convertOperands(
+      left,
+      right,
+    );
+    if (!this.isFloat(commonType)) {
+      throw new Error(`Erro fcmp: tipo não é ponto flutuante (${commonType})`);
+    }
+    const tmp = this.nextTemp();
+    this.add(
+      `${tmp} = fcmp ${predicate} ${commonType} ${lhs.value}, ${rhs.value}`,
+    );
+    return { value: tmp, type: "i1" };
   }
 
   // Métodos inteligentes de ponteiro

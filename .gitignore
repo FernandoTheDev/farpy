@@ -2,3 +2,4 @@ tests/trash
 a.out
 bin
 farpy
+*.ll

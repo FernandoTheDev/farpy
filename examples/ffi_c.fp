@@ -15,7 +15,7 @@ extern "C" start
     }
 end
 
-int x = sum(60, 9)
+new x: i32 = sum(60, 9)
 printf("Calc = %d\n", x)
 
 hello("Fernando")

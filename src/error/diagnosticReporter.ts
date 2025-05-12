@@ -274,10 +274,6 @@ export class DiagnosticReporter {
           lastPos = token.loc.end;
         }
 
-        if (lastPos < line_string.length) {
-          coloredLine += line_string.substring(lastPos);
-        }
-
         output += coloredLine;
       } else {
         const errorTokenColor = tokenType !== undefined

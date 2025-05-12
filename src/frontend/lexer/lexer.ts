@@ -38,6 +38,8 @@ export class Lexer {
     "[": TokenType.LBRACKET,
     "]": TokenType.RBRACKET,
     "#": TokenType.C_DIRECTIVE,
+    "!": TokenType.BANG,
+    "&": TokenType.AMPERSAND,
   };
   private static MULTI_CHAR_TOKENS: { [key: string]: TokenType } = {
     "++": TokenType.INCREMENT,

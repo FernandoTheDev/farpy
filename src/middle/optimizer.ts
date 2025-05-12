@@ -16,6 +16,7 @@ import {
   BinaryExpr,
   BinaryLiteral,
   CallExpr,
+  DecrementExpr,
   ElifStatement,
   ElseStatement,
   Expr,
@@ -23,12 +24,15 @@ import {
   ForRangeStatement,
   FunctionDeclaration,
   IfStatement,
+  IncrementExpr,
   IntLiteral,
   Program,
   ReturnStatement,
   Stmt,
   StringLiteral,
+  UnaryExpr,
   VariableDeclaration,
+  WhileStatement,
 } from "../frontend/parser/ast.ts";
 
 export class Optimizer {
@@ -79,11 +83,14 @@ export class Optimizer {
         return this.optimizeCallExpr(expr as CallExpr);
       case "IncrementExpr":
       case "DecrementExpr":
+      case "UnaryExpr":
         return this.optimizeUnaryExpr(expr as any);
       case "ReturnStatement":
         return this.optimizeReturnStatement(expr as ReturnStatement);
       case "ForRangeStatement":
         return this.optimizeForRangeStatement(expr as ForRangeStatement);
+      case "WhileStatement":
+        return this.optimizeWhileStatement(expr as WhileStatement);
       case "IntLiteral":
       case "FloatLiteral":
       case "StringLiteral":
@@ -92,6 +99,7 @@ export class Optimizer {
       case "Identifier":
       case "ImportStatement":
       case "ExternStatement":
+      case "BooleanLiteral":
         return expr;
       default:
         this.reporter.addWarning(
@@ -100,6 +108,21 @@ export class Optimizer {
         );
         return expr;
     }
+  }
+
+  private optimizeWhileStatement(
+    node: WhileStatement,
+  ): WhileStatement {
+    const body = node.block;
+    node.block = [];
+
+    node.condition = this.optimize(node.condition);
+
+    for (const expr of body) {
+      node.block.push(this.optimize(expr));
+    }
+
+    return node;
   }
 
   private optimizeForRangeStatement(
@@ -165,14 +188,7 @@ export class Optimizer {
 
     if (node.secondary !== null) {
       // @ts-ignore
-      node.secondary = this.optimize(node.secondary); /**
-       * Farpy - A programming language
-       *
-       * Copyright (c) 2025 Fernando (FernandoTheDev)
-       *
-       * This software is licensed under the MIT License.
-       * See the LICENSE file in the project root for full license information.
-       */
+      node.secondary = this.optimize(node.secondary);
     }
 
     return node;
@@ -192,8 +208,14 @@ export class Optimizer {
     return callExpr;
   }
 
-  private optimizeUnaryExpr(unaryExpr: any): any {
-    unaryExpr.value = this.optimize(unaryExpr.value);
+  private optimizeUnaryExpr(
+    unaryExpr: IncrementExpr | DecrementExpr | UnaryExpr,
+  ): IncrementExpr | DecrementExpr | UnaryExpr {
+    if (unaryExpr.kind == "UnaryExpr") {
+      unaryExpr.operand = this.optimize(unaryExpr.operand);
+    } else {
+      unaryExpr.value = this.optimize(unaryExpr.value);
+    }
     return unaryExpr;
   }
 

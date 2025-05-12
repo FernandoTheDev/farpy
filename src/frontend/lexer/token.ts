@@ -73,6 +73,10 @@ export enum TokenType {
   END, // start 54
   STRUCT, // struct 55
   C_DIRECTIVE, // # 56
+  AMPERSAND, // & 57
+  BANG, // ! 58
+  FALSE, // false 59
+  TRUE, // true 60
 }
 
 export type NativeValue =
@@ -117,4 +121,6 @@ export const Keywords: Record<string, TokenType> = {
   "start": TokenType.START,
   "end": TokenType.END,
   "struct": TokenType.STRUCT,
+  "false": TokenType.FALSE,
+  "true": TokenType.TRUE,
 };

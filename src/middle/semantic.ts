@@ -6,6 +6,7 @@
  * This software is licensed under the MIT License.
  * See the LICENSE file in the project root for full license information.
  */
+import { unreachable } from "jsr:@std/assert/unreachable";
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import { Lexer } from "../frontend/lexer/lexer.ts";
 import { Loc, Token } from "../frontend/lexer/token.ts";
@@ -22,6 +23,8 @@ import {
   ImportStatement,
   LLVMType,
   ReturnStatement,
+  UnaryExpr,
+  WhileStatement,
 } from "../frontend/parser/ast.ts";
 import {
   BinaryExpr,
@@ -48,7 +51,7 @@ export interface TypeMapping {
   llvmType: LLVMType;
 }
 
-interface SymbolInfo {
+export interface SymbolInfo {
   id: string;
   sourceType: TypesNative | TypesNative[];
   llvmType: LLVMType;
@@ -59,7 +62,7 @@ interface SymbolInfo {
 
 export class Semantic {
   private static instance: Semantic | null;
-  protected scopeStack: Map<string, SymbolInfo>[] = [];
+  public scopeStack: Map<string, SymbolInfo>[] = [];
   private typeChecker: TypeChecker;
   public availableFunctions: Map<string, StdLibFunction | Function> = new Map();
   public importedModules: Set<string> = new Set();
@@ -168,6 +171,9 @@ export class Semantic {
           node as AssignmentDeclaration,
         );
         break;
+      case "WhileStatement":
+        analyzedNode = this.analyzeWhileStatement(node as WhileStatement);
+        break;
       case "FunctionDeclaration":
         analyzedNode = this.analyzeFnDeclaration(node as FunctionDeclaration);
         break;
@@ -179,6 +185,9 @@ export class Semantic {
         break;
       case "DecrementExpr":
         analyzedNode = this.analyzeDecrementExpr(node as DecrementExpr);
+        break;
+      case "UnaryExpr":
+        analyzedNode = this.analyzeUnaryExpr(node as UnaryExpr);
         break;
       case "StringLiteral":
       case "IntLiteral":
@@ -203,6 +212,21 @@ export class Semantic {
     }
 
     return analyzedNode;
+  }
+
+  private analyzeUnaryExpr(node: UnaryExpr): UnaryExpr {
+    node.operand = this.analyzeNode(node.operand);
+    return node;
+  }
+
+  private analyzeWhileStatement(node: WhileStatement): WhileStatement {
+    node.condition = this.analyzeNode(node.condition);
+
+    for (let i = 0; i < node.block.length; i++) {
+      node.block[i] = this.analyzeNode(node.block[i]);
+    }
+
+    return node;
   }
 
   private analyzeExternStatement(node: ExternStatement): ExternStatement {
@@ -448,6 +472,7 @@ export class Semantic {
       );
     }
 
+    const scope = this.currentScope();
     this.popScope();
 
     return {
@@ -456,6 +481,7 @@ export class Semantic {
       block: analyzedBlock,
       type: returnType,
       llvmType: returnLLVMType,
+      scope: scope,
     };
   }
 
@@ -742,6 +768,7 @@ export class Semantic {
     const analyzedValue = this.analyzeNode(decl.value) as Expr;
 
     if (this.currentScope().has(decl.id.value)) {
+      console.log(decl);
       this.reporter.addError(
         decl.id.loc,
         `Variable '${decl.id.value}' is already defined in this scope`,

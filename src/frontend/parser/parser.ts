@@ -15,6 +15,7 @@ import {
   AST_INT,
   AST_NULL,
   AST_STRING,
+  AST_UNARY,
   BinaryExpr,
   CallExpr,
   ElifStatement,
@@ -33,9 +34,11 @@ import {
   ReturnStatement,
   Stmt,
   VariableDeclaration,
+  WhileStatement,
 } from "./ast.ts";
 import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
 import { CParser } from "./cparser.ts";
+import { TypeChecker } from "../../middle/type_checker.ts";
 
 type InfixParseFn = (left: Expr) => Expr;
 
@@ -142,6 +145,8 @@ export class Parser {
         return this.parseForStatement();
       case TokenType.EXTERN:
         return this.parseExternStatement();
+      case TokenType.WHILE:
+        return this.parseWhileStatement();
       case TokenType.IDENTIFIER: {
         const name = token.value!.toString();
         if (this.peek().kind === TokenType.LPAREN) {
@@ -151,14 +156,21 @@ export class Parser {
           return this.parseAssignment(AST_IDENTIFIER(name, token.loc));
         }
 
-        if (
-          this.peek().kind === TokenType.IDENTIFIER &&
-          this.next() != false
-        ) {
-          if ((this.next() as Token).kind === TokenType.EQUALS) {
-            return this.parseCVarDeclaration();
-          }
-        }
+        // if (
+        //   this.peek().kind === TokenType.IDENTIFIER &&
+        //   this.next() != false
+        // ) {
+        //   if ((this.next() as Token).kind === TokenType.EQUALS) {
+        //     if (
+        //       new TypeChecker(this.reporter).isValidType(
+        //         this.peek().value as string,
+        //       )
+        //     ) {
+        //       console
+        //       return this.parseCVarDeclaration();
+        //     }
+        //   }
+        // }
 
         return AST_IDENTIFIER(name, token.loc);
       }
@@ -167,6 +179,40 @@ export class Parser {
         this.consume(TokenType.RPAREN, "Expect ')' after expression.");
         return expr;
       }
+      case TokenType.ASTERISK: {
+        // Operador de desreferenciamento (pode ser múltiplo como ***)
+        let count = 1;
+        while (this.peek().kind === TokenType.ASTERISK) {
+          count++;
+          this.advance();
+        }
+
+        // Cria um operador desref para cada nível
+        let operand = this.parseExpression(Precedence.PREFIX);
+        for (let i = 0; i < count; i++) {
+          operand = AST_UNARY(
+            "*",
+            operand,
+            this.makeLoc(token.loc, operand.loc),
+          );
+        }
+        return operand;
+      }
+
+      case TokenType.AMPERSAND: {
+        const operand = this.parseExpression(Precedence.PREFIX);
+        return AST_UNARY("&", operand, this.makeLoc(token.loc, operand.loc));
+      }
+
+      case TokenType.MINUS: {
+        const operand = this.parseExpression(Precedence.PREFIX);
+        return AST_UNARY("-", operand, this.makeLoc(token.loc, operand.loc));
+      }
+
+      case TokenType.BANG: {
+        const operand = this.parseExpression(Precedence.PREFIX);
+        return AST_UNARY("!", operand, this.makeLoc(token.loc, operand.loc));
+      }
       default:
         this.reporter.addError(
           token.loc,
@@ -174,6 +220,35 @@ export class Parser {
         );
         throw new Error(`No prefix parse function for ${token.value}`);
     }
+  }
+
+  private parseWhileStatement(): WhileStatement {
+    const start = this.previous();
+    const body: Expr[] = [];
+    const condition = this.parseExpression(Precedence.LOWEST);
+
+    this.consume(
+      TokenType.LBRACE,
+      "A '{' was expected to start the for block.",
+    );
+
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      body.push(this.parseExpression(Precedence.LOWEST));
+    }
+
+    this.consume(
+      TokenType.RBRACE,
+      "A '}' was expected to close the for block.",
+    );
+
+    return {
+      kind: "WhileStatement",
+      condition: condition,
+      block: body,
+      type: "void",
+      value: "void",
+      loc: this.makeLoc(start.loc, condition.loc),
+    };
   }
 
   private parseExternStatement(): ExternStatement {
@@ -193,11 +268,6 @@ export class Parser {
 
     while (!this.isAtEnd() && this.peek().kind != TokenType.END) {
       const peek = this.advance();
-
-      // if (peek.kind == TokenType.STRING) {
-      //   source.push(`"${peek.value as string}"`);
-      //   continue;
-      // }
 
       if (peek.loc.line > last_line) {
         last_line = peek.loc.line;
