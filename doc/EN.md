@@ -14,6 +14,7 @@
   - [Control Flow](#control-flow)
     - [If / Elif / Else](#if--elif--else)
     - [For](#for)
+    - [While](#while)
   - [Standard Libraries](#standard-libraries)
     - [`io`](#io)
   - [Importing External Code](#importing-external-code)
@@ -51,9 +52,8 @@ Farpy is a general-purpose language combining simplicity, safety, and high perfo
 2. Compile the compiler:
 
    ```bash
-   deno task compile
+   ./build.sh install
    ```
-3. Add `farpy` to your PATH (e.g., move it to `/usr/local/bin`).
 
 ---
 
@@ -168,6 +168,15 @@ for 0..=100 step 2 as i {
 }
 ```
 
+### While
+
+```farpy
+while i < 10 {
+  i = i + 1 // i++
+  // do something
+}
+```
+
 ---
 
 ## Standard Libraries
@@ -270,7 +279,7 @@ farpy file.fp --opt
 
 ## Version
 
-* **Current Version:** 0.0.1
+* **Current Version:** 0.0.2
 
 ---
 

@@ -40,3 +40,10 @@ export const TypesNativeArray: string[] = [
   "binary",
   "void",
 ];
+
+export enum PrefixOperator {
+  DEREF = "*", // Desreferenciar um ponteiro
+  REF = "&", // Criar referência para uma variável
+  NEGATE = "-", // Negação numérica
+  NOT = "!", // Negação lógica
+}

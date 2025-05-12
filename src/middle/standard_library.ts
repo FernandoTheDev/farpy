@@ -113,20 +113,21 @@ function createMathModule(): StdLibModule {
 // Create String module with fluent API
 function createStringModule(): StdLibModule {
   return defineModule("string")
-    .defineFunction("length")
+    .defineFunction("str_equals")
+    .returns("bool")
+    .withParams("string", "string")
+    .done()
+    .defineFunction("str_length")
     .returns("int")
     .withParams("string")
-    .llvmName("strlen")
     .done()
-    .defineFunction("concat")
+    .defineFunction("str_slice")
     .returns("string")
-    .withParams("string", "string")
-    .llvmName("strcat")
+    .withParams("string", "i64", "i64")
     .done()
-    .defineFunction("substring")
-    .returns("string")
-    .withParams("string", "int", "int")
-    .llvmName("substring")
+    .defineFunction("atoi")
+    .returns("int")
+    .withParams("string")
     .done()
     .build();
 }
@@ -162,6 +163,11 @@ function createTypesModule(): StdLibModule {
     .defineFunction("ftoi")
     .returns("int")
     .withParams("float")
+    .done()
+    // Bool to Int Conversion
+    .defineFunction("btoi")
+    .returns("int")
+    .withParams("bool")
     .done()
     // Build
     .build();
@@ -227,5 +233,6 @@ export class StandardLibrary {
     this.registerModule(createMathModule());
     this.registerModule(createStringModule());
     this.registerModule(createTypesModule());
+    this.registerModule(createStringModule());
   }
 }

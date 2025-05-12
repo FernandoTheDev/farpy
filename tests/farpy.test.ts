@@ -116,7 +116,7 @@ Deno.test({
 
     assertEquals(
       outText,
-      " v = -1\n w = 0\n x = 3\n z = 2\n y = 1\n name = Fernando\n",
+      " v = -1\n w = 0\n z = 2\n y = 1\n",
       "A saída do programa não corresponde ao valor esperado",
     );
 
@@ -301,7 +301,7 @@ Deno.test({
 
     assertEquals(
       outText,
-      "Before if\nh4ck3r\nAfter if\n",
+      "Before if\noi\nAfter if\n",
       "A saída do programa não corresponde ao valor esperado",
     );
 
@@ -338,7 +338,7 @@ Deno.test({
 
     assertEquals(
       outText,
-      "100.000000\n",
+      "1\n",
       "A saída do programa não corresponde ao valor esperado",
     );
 

@@ -6,6 +6,7 @@
  * This software is licensed under the MIT License.
  * See the LICENSE file in the project root for full license information.
  */
+import { SymbolInfo } from "../../middle/semantic.ts";
 import { Loc } from "../lexer/token.ts";
 import { TypesNative } from "../values.ts";
 import { Define, Function } from "./cparser.ts";
@@ -37,6 +38,7 @@ export type NodeType =
   | "StringLiteral"
   | "IntLiteral"
   | "NullLiteral"
+  | "BooleanLiteral"
   | "FloatLiteral"
   | "BinaryLiteral"
   | "VariableDeclaration"
@@ -52,7 +54,9 @@ export type NodeType =
   | "ForCStyleStatement"
   | "ArrowExpression"
   | "StructStatement"
-  | "ExternStatement";
+  | "ExternStatement"
+  | "WhileStatement"
+  | "UnaryExpr";
 
 export interface Stmt {
   kind: NodeType;
@@ -189,6 +193,20 @@ export function AST_NULL(loc: Loc): NullLiteral {
   } as NullLiteral;
 }
 
+export interface BooleanLiteral extends Expr {
+  kind: "BooleanLiteral";
+  value: boolean;
+}
+
+export function AST_BOOL(value: boolean, loc: Loc): BooleanLiteral {
+  return {
+    kind: "BooleanLiteral",
+    type: "bool",
+    value: value,
+    loc: loc,
+  } as BooleanLiteral;
+}
+
 export interface CallExpr extends Expr {
   kind: "CallExpr";
   callee: Identifier;
@@ -215,6 +233,7 @@ export interface FunctionDeclaration extends Stmt {
   args: FunctionArgs[];
   id: Identifier;
   block: Stmt[];
+  scope?: Map<string, SymbolInfo>;
 }
 
 export interface ReturnStatement extends Stmt {
@@ -282,4 +301,58 @@ export interface ExternStatement extends Stmt {
   defines: Define[];
   functions: Function[]; // cparse.ts
   code: string;
+}
+
+export interface WhileStatement extends Stmt {
+  kind: "WhileStatement";
+  condition: Expr;
+  block: Stmt[];
+}
+
+/**
+ * Representa uma expressão unária (como !x, -x, *p, &v)
+ */
+export interface UnaryExpr extends Expr {
+  kind: "UnaryExpr";
+  operator: string; // "*", "&", "-", "!"
+  operand: Expr;
+}
+
+/**
+ * Função helper para criar expressões unárias
+ */
+
+function inferUnaryType(operator: string, operand: Expr): TypesNative {
+  switch (operator) {
+    // case "*":
+    //   // Desreferenciar um ponteiro dá o tipo base
+    //   if (operand.type.toString().startsWith("ptr_")) {
+    //     return operand.type.toString().substring(4) as TypesNative;
+    //   }
+    //   return "null";
+    // case "&":
+    //   // Referenciar um valor cria um ponteiro para esse tipo
+    //   return `ptr_${operand.type}`;
+    case "-":
+      return operand.type as TypesNative;
+    case "!":
+      return "bool";
+    default:
+      return "null";
+  }
+}
+
+export function AST_UNARY(
+  operator: string,
+  operand: Expr,
+  loc: Loc,
+): UnaryExpr {
+  return {
+    kind: "UnaryExpr",
+    operator: operator,
+    operand: operand,
+    type: inferUnaryType(operator, operand),
+    value: null,
+    loc,
+  };
 }

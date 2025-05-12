@@ -51,6 +51,10 @@ export class TypeChecker {
     this.typeMap.set("char *", LLVMType.STRING);
   }
 
+  public isValidType(type: string | LLVMType | TypesNative): boolean {
+    return this.typeMap.get(String(type)) != undefined;
+  }
+
   public mapToLLVMType(
     sourceType: TypesNative | TypesNative[] | string,
   ): LLVMType {
@@ -145,6 +149,7 @@ export class TypeChecker {
       "i64": ["float", "double"],
       "long": ["float", "double"],
       "string": ["const char *", "char *"],
+      // "bool": ["int", "i32", "long", "float", "double", "string", "i64"],
     };
 
     if (compatibilityMap[source]?.includes(target)) return true;

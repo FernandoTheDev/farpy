@@ -14,6 +14,7 @@
   - [Controle de Fluxo](#controle-de-fluxo)
     - [If / Elif / Else](#if--elif--else)
     - [For](#for)
+    - [While](#while)
   - [Bibliotecas Padrão](#bibliotecas-padrão)
     - [`io`](#io)
   - [Importando Código Externo](#importando-código-externo)
@@ -51,9 +52,8 @@ Farpy é uma linguagem de propósito geral que combina simplicidade, segurança 
 2. Compile o compilador:
 
    ```bash
-   deno task compile
+   ./build.sh install
    ```
-3. Adicione `farpy` ao seu PATH (ex.: movendo para `/usr/local/bin`).
 
 ---
 
@@ -168,6 +168,15 @@ for 0..=100 step 2 as i {
 }
 ```
 
+### While
+
+```farpy
+while i < 10 {
+  i = i + 1 // i++
+  // faça algo
+}
+```
+
 ---
 
 ## Bibliotecas Padrão
@@ -270,7 +279,7 @@ farpy file.fp --opt
 
 ## Versão
 
-* **Versão Atual:** 0.0.1
+* **Versão Atual:** 0.0.2
 
 ---
 

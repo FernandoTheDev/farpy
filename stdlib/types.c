@@ -7,6 +7,7 @@
  * See the LICENSE file in the project root for full license information.
  */
 #include <stdio.h>
+#include <stdbool.h>
 
 // Float to Double Conversion
 double ftod(float x)
@@ -40,6 +41,12 @@ int dtoi(double x)
 
 // Float to Int Conversion
 int ftoi(float x)
+{
+    return (int)x;
+}
+
+// Bool to Int Conversion
+int btoi(bool x)
 {
     return (int)x;
 }
