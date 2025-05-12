@@ -3,3 +3,4 @@ a.out
 bin
 farpy
 *.ll
+repl.fp

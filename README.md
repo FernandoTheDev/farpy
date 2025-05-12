@@ -6,7 +6,7 @@
 
 Farpy is a statically-typed, compiled programming language designed for performance, safety, and simplicity. Written entirely in TypeScript, Farpy generates a lean and highly optimized binary without relying on external dependencies. Its standard library is implemented in C to maximize execution speed and maintain a compact footprint.
 
-**Complete documentation**: [Doc](doc/) | **Version:** `0.0.1`
+**Complete documentation**: [Doc](doc/) | **Version:** `0.0.2`
 
 ## Key Features
 
@@ -53,11 +53,11 @@ Ensure that all tools are available in your system `PATH`.
    ```
 3. **Build the compiler**:
    ```bash
-   deno task compile
+   ./build.sh install
    ```
 4. **Compile a Farpy program**:
    ```bash
-   ./farpy examples/hello.fp --opt --o hello
+   farpy examples/hello.fp --opt --o hello
    ```
 5. **Run the generated executable**:
    ```bash
@@ -65,7 +65,7 @@ Ensure that all tools are available in your system `PATH`.
    ```
 6. **See how to use compiler flags**
    ```bash
-   ./farpy --h
+   farpy --h
    ```
 
 ## Contributing
