@@ -545,9 +545,11 @@ export class Semantic {
 
     // TODO: Use the file's directory and not the user's as it is now
     const filePath = node.loc.dir + moduleName;
-    const file = Deno.readTextFileSync(filePath);
+    let file = "";
 
-    if (!file) {
+    try {
+      file = Deno.readTextFileSync(filePath);
+    } catch (_error) {
       this.reporter.addError(
         node.path.loc,
         `Module '${moduleName}' not found`,
