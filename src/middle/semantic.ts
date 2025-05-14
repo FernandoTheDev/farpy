@@ -6,7 +6,6 @@
  * This software is licensed under the MIT License.
  * See the LICENSE file in the project root for full license information.
  */
-import { unreachable } from "jsr:@std/assert/unreachable";
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import { Lexer } from "../frontend/lexer/lexer.ts";
 import { Loc, Token } from "../frontend/lexer/token.ts";

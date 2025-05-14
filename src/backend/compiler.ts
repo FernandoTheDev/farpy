@@ -181,12 +181,14 @@ export class FarpyCompiler {
         "-fdata-sections",
         "-ffunction-sections",
         "-Wl,--gc-sections",
+        "-Wl,-s",
         "-fomit-frame-pointer",
         "-fstrict-aliasing",
         "-ffast-math",
         "-fno-rtti",
         "-funwind-tables",
         "-g0",
+        "-flto", // habilita LTO
         ...moduleArgs,
       ];
       if (this.target) args.push("-target", this.target);
