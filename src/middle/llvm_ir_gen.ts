@@ -1123,7 +1123,7 @@ export class LLVMIRGenerator {
         `; DEBUG - LINE: ${float.loc.line} | RAW: ${float.value}`,
       );
     }
-    const value = float.value.toString().includes(".")
+    const value = String(float.value).includes(".")
       ? float.value.toString()
       : `${float.value}.0`;
     return this.makeIrValue(value, "double");

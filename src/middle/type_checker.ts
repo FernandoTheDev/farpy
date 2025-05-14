@@ -328,7 +328,9 @@ export class TypeChecker {
   ): string | number {
     if (!Number.isNaN(value)) {
       if (targetType === "float" || targetType === "double") {
-        return Number.isInteger(Number(value)) ? `${value}.0` : `${value}`;
+        return Number.isInteger(Number(value)) && !String(value).includes(".")
+          ? `${value}.20`
+          : `${value}`;
       }
       return `${Math.floor(value)}`;
     }
