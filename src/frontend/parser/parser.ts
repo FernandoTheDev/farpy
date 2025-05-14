@@ -38,7 +38,6 @@ import {
 } from "./ast.ts";
 import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
 import { CParser } from "./cparser.ts";
-import { TypeChecker } from "../../middle/type_checker.ts";
 
 type InfixParseFn = (left: Expr) => Expr;
 
@@ -156,6 +155,7 @@ export class Parser {
           return this.parseAssignment(AST_IDENTIFIER(name, token.loc));
         }
 
+        // cstyle
         // if (
         //   this.peek().kind === TokenType.IDENTIFIER &&
         //   this.next() != false
@@ -258,7 +258,42 @@ export class Parser {
       "A string is expected to identify the target language.",
     );
 
-    /* TODO if (this.match(TokenType.FROM)) { } */
+    if (this.match(TokenType.FROM)) {
+      const filename = this.consume(
+        TokenType.STRING,
+        "A string is expected for the target file name.",
+      );
+
+      const filePath = filename.loc.dir + filename.value;
+      let source = "";
+
+      try {
+        source = Deno.readTextFileSync(
+          filePath,
+        );
+      } catch (_error) {
+        this.reporter.addError(
+          filename.loc,
+          `File '${filePath}' not found`,
+        );
+        throw new Error(`File '${filePath}' not found`);
+      }
+
+      const cparserValue = new CParser().parseString(source);
+
+      return {
+        kind: "ExternStatement",
+        functions: cparserValue.functions,
+        defines: cparserValue.defines,
+        includes: cparserValue.includes,
+        language: language.value as string,
+        type: "void",
+        value: "void",
+        code: source,
+        loc: this.makeLoc(start.loc, filename.loc),
+      } as ExternStatement;
+    }
+
     const end = this.consume(
       TokenType.START,
       "Expected 'start' after language target.",

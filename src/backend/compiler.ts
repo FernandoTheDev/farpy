@@ -188,7 +188,6 @@ export class FarpyCompiler {
         "-fno-rtti",
         "-funwind-tables",
         "-g0",
-        "-flto", // habilita LTO
         ...moduleArgs,
       ];
       if (this.target) args.push("-target", this.target);

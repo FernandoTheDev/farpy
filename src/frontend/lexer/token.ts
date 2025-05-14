@@ -77,6 +77,7 @@ export enum TokenType {
   BANG, // ! 58
   FALSE, // false 59
   TRUE, // true 60
+  FROM, // from 61
 }
 
 export type NativeValue =
@@ -123,4 +124,5 @@ export const Keywords: Record<string, TokenType> = {
   "struct": TokenType.STRUCT,
   "false": TokenType.FALSE,
   "true": TokenType.TRUE,
+  "from": TokenType.FROM,
 };
