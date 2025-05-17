@@ -144,7 +144,7 @@ export class Lexer {
         );
         this.offset++; // Skip the problematic character
       }
-    } catch (error: any) {
+    } catch (_error: any) {
       return null;
     }
 
@@ -154,7 +154,6 @@ export class Lexer {
 
   private lexing_alphanumeric(): void {
     let id = "";
-    const startOffset = this.offset;
 
     while (
       this.offset < this.source.length &&

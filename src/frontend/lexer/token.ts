@@ -126,3 +126,23 @@ export const Keywords: Record<string, TokenType> = {
   "true": TokenType.TRUE,
   "from": TokenType.FROM,
 };
+
+export function isTypeToken(token: Token): boolean {
+  if (token.kind === TokenType.IDENTIFIER) {
+    const value = token.value as string;
+    return ["int", "float", "string", "bool", "void"].includes(value);
+  }
+  return false;
+}
+
+export function isComplexTypeToken(token: Token): boolean {
+  switch (token.kind) {
+    case TokenType.ASTERISK:
+    case TokenType.LBRACKET:
+    case TokenType.RBRACKET:
+    case TokenType.AMPERSAND:
+      return true;
+    default:
+      return false;
+  }
+}

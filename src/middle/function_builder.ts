@@ -7,7 +7,7 @@
  * See the LICENSE file in the project root for full license information.
  */
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
-import { LLVMType } from "../frontend/parser/ast.ts";
+import { LLVMType, TypeInfo } from "../frontend/parser/ast.ts";
 import {
   StdLibFunction,
   StdLibModuleBuilder,
@@ -34,10 +34,10 @@ export class FunctionBuilder {
     this.typeChecker = getTypeChecker(reporter);
   }
 
-  returns(type: string): FunctionBuilder {
+  returns(type: TypeInfo): FunctionBuilder {
     this.function.returnType = type;
     // Set default LLVM type based on return type
-    this.function.llvmType = this.typeChecker.mapToLLVMType(type);
+    this.function.llvmType = this.typeChecker.mapToLLVMType(type.baseType);
     return this;
   }
 
@@ -90,6 +90,10 @@ export class FunctionBuilder {
   done(): StdLibModuleBuilder {
     if (!this.function.returnType) {
       throw new Error(`Function ${this.function.name} must have a return type`);
+    }
+
+    if (!this.function.llvmName) {
+      this.function.llvmName = this.function.name;
     }
 
     // Auto-generate IR if not provided

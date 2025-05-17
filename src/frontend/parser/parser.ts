@@ -9,7 +9,9 @@
 import { TypesNative } from "../values.ts";
 import { Loc, Token, TokenType } from "../lexer/token.ts";
 import {
+  ArrayLiteral,
   AssignmentDeclaration,
+  AST_ARRAY,
   AST_FLOAT,
   AST_IDENTIFIER,
   AST_INT,
@@ -18,6 +20,7 @@ import {
   AST_UNARY,
   BinaryExpr,
   CallExpr,
+  createTypeInfo,
   ElifStatement,
   ElseStatement,
   Expr,
@@ -33,11 +36,13 @@ import {
   Program,
   ReturnStatement,
   Stmt,
+  TypeInfo,
   VariableDeclaration,
   WhileStatement,
 } from "./ast.ts";
 import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
 import { CParser } from "./cparser.ts";
+import { ParseType } from "./parse_type.ts";
 
 type InfixParseFn = (left: Expr) => Expr;
 
@@ -67,7 +72,7 @@ export class Parser {
   public parse(): Program {
     const program: Program = {
       kind: "Program",
-      type: "null",
+      type: createTypeInfo("null"),
       value: null,
       body: [],
       loc: {} as Loc,
@@ -85,6 +90,7 @@ export class Parser {
         )
         : {} as Loc;
     } catch (_error: any) {
+      console.log(_error);
       // Does nothing here, just lets the error propagate
       // The reporter already contains the recorded errors
     }
@@ -146,6 +152,8 @@ export class Parser {
         return this.parseExternStatement();
       case TokenType.WHILE:
         return this.parseWhileStatement();
+      case TokenType.LBRACKET:
+        return this.parseArrayLiteral();
       case TokenType.IDENTIFIER: {
         const name = token.value!.toString();
         if (this.peek().kind === TokenType.LPAREN) {
@@ -179,11 +187,26 @@ export class Parser {
         this.consume(TokenType.RPAREN, "Expect ')' after expression.");
         return expr;
       }
-      case TokenType.ASTERISK: {
+      case TokenType.ASTERISK:
+      case TokenType.EXPONENTIATION: {
         // Operador de desreferenciamento (pode ser múltiplo como ***)
         let count = 1;
-        while (this.peek().kind === TokenType.ASTERISK) {
+
+        if (token.kind == TokenType.EXPONENTIATION) {
+          count += 2;
+        } else {
           count++;
+        }
+
+        while (
+          this.peek().kind === TokenType.ASTERISK ||
+          this.peek().kind === TokenType.EXPONENTIATION
+        ) {
+          if (this.peek().kind === TokenType.EXPONENTIATION) {
+            count += 2;
+          } else {
+            count++;
+          }
           this.advance();
         }
 
@@ -222,6 +245,27 @@ export class Parser {
     }
   }
 
+  private parseArrayLiteral(): ArrayLiteral {
+    const start = this.previous(); // [
+    const values: Expr[] = [];
+
+    while (this.peek().kind != TokenType.RBRACKET) {
+      values.push(this.parseExpression(Precedence.LOWEST));
+      this.match(TokenType.COMMA);
+    }
+
+    this.consume(
+      TokenType.RBRACKET,
+      "Expected ']' to close array.",
+    );
+
+    return AST_ARRAY(
+      values,
+      start.loc,
+      values[0] != undefined ? values[0].type : createTypeInfo("null"),
+    );
+  }
+
   private parseWhileStatement(): WhileStatement {
     const start = this.previous();
     const body: Expr[] = [];
@@ -245,7 +289,7 @@ export class Parser {
       kind: "WhileStatement",
       condition: condition,
       block: body,
-      type: "void",
+      type: createTypeInfo("void"),
       value: "void",
       loc: this.makeLoc(start.loc, condition.loc),
     };
@@ -287,7 +331,7 @@ export class Parser {
         defines: cparserValue.defines,
         includes: cparserValue.includes,
         language: language.value as string,
-        type: "void",
+        type: createTypeInfo("void"),
         value: "void",
         code: source,
         loc: this.makeLoc(start.loc, filename.loc),
@@ -324,34 +368,11 @@ export class Parser {
       defines: cparserValue.defines,
       includes: cparserValue.includes,
       language: language.value as string,
-      type: "void",
+      type: createTypeInfo("void"),
       value: "void",
       code: src,
       loc: this.makeLoc(start.loc, end.loc),
     } as ExternStatement;
-  }
-
-  private parseCVarDeclaration(): VariableDeclaration {
-    const start = this.previous();
-    const type = start.value as TypesNative; // Type
-    const mutable: boolean = false;
-    const id = this.consume(
-      TokenType.IDENTIFIER,
-      "Expected identifier to variable name.",
-    );
-
-    this.consume(TokenType.EQUALS, "Expected '=' after variable name.");
-    const expr = this.parseExpression(Precedence.LOWEST);
-    const loc = this.makeLoc(start.loc, expr.loc);
-
-    return {
-      kind: "VariableDeclaration",
-      id: AST_IDENTIFIER(id.value!.toString(), id.loc),
-      type: type,
-      value: expr,
-      mutable: mutable,
-      loc: loc,
-    } as VariableDeclaration;
   }
 
   // private parseArrowExpression();
@@ -435,7 +456,7 @@ export class Parser {
         : AST_IDENTIFIER(String(to.value), to.loc),
       inclusive: inclusive,
       block: body,
-      type: "null",
+      type: createTypeInfo("null"),
       value: AST_NULL({} as Loc),
       loc: this.makeLoc(start.loc, end.loc),
     } as ForRangeStatement;
@@ -449,7 +470,7 @@ export class Parser {
     let returnStmt: ReturnStatement | NullLiteral = AST_NULL({} as Loc);
 
     const body: Stmt[] = [];
-    // @ts-ignore
+    // @ts-ignore: Dont have error
     let bodySecond: ElifStatement | ElseStatement | null = null;
 
     while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
@@ -469,7 +490,7 @@ export class Parser {
     );
 
     if (this.match(TokenType.ELIF)) {
-      // @ts-ignore
+      // @ts-ignore: Dont have error
       bodySecond = this.parseIfStatement(false);
     }
 
@@ -546,26 +567,18 @@ export class Parser {
     const args = this.parse_function_arguments();
 
     // Parse optional return type
-    let returnType: TypesNative | TypesNative[] = "void"; // Default return type
-    if (this.match(TokenType.COLON)) {
-      // Parse return type (supporting union types)
-      const returnTypes: TypesNative[] = [];
-      const firstTypeToken = this.consume(
-        TokenType.IDENTIFIER,
-        "Expected return type.",
-      );
-      returnTypes.push(firstTypeToken.value as TypesNative);
+    let returnType: TypeInfo = createTypeInfo("void"); // Default return type
 
-      while (this.peek().kind === TokenType.PIPE) {
-        this.advance(); // Skip |
-        const typeToken = this.consume(
-          TokenType.IDENTIFIER,
-          "Expected type after '|'.",
-        );
-        returnTypes.push(typeToken.value as TypesNative);
+    if (this.match(TokenType.COLON)) {
+      const tokens: Token[] = [];
+
+      while (
+        this.peek().kind != TokenType.LBRACE // {
+      ) {
+        tokens.push(this.advance());
       }
 
-      returnType = returnTypes.length === 1 ? returnTypes[0] : returnTypes;
+      returnType = new ParseType(tokens).parse();
     }
 
     this.consume(TokenType.LBRACE, "Expect '{' before function body.");
@@ -605,28 +618,22 @@ export class Parser {
         argToken.loc,
       );
 
-      let argType: TypesNative | TypesNative[] = "id";
+      let argType: TypeInfo = createTypeInfo("id");
       let defaultValue: Expr | undefined = undefined;
 
       this.consume(TokenType.COLON, "Expect ':' after argument name.");
-      // Parse argument type (supporting union types)
-      const argTypes: TypesNative[] = [];
-      const firstTypeToken = this.consume(
-        TokenType.IDENTIFIER,
-        "Expected type for argument.",
-      );
-      argTypes.push(firstTypeToken.value as TypesNative);
 
-      while (this.peek().kind === TokenType.PIPE) {
-        this.advance(); // Skip '|'
-        const typeToken = this.consume(
-          TokenType.IDENTIFIER,
-          "Expected type after '|'.",
-        );
-        argTypes.push(typeToken.value as TypesNative);
+      const tokens: Token[] = [];
+
+      while (
+        this.peek().kind != TokenType.EQUALS && // =
+        this.peek().kind != TokenType.COMMA && // ,
+        this.peek().kind != TokenType.RPAREN // )
+      ) {
+        tokens.push(this.advance());
       }
 
-      argType = argTypes.length === 1 ? argTypes[0] : argTypes;
+      argType = new ParseType(tokens).parse();
 
       if (this.match(TokenType.EQUALS)) {
         defaultValue = this.parseExpression(Precedence.LOWEST);
@@ -661,26 +668,16 @@ export class Parser {
       "Expect identifier to variable name.",
     );
     let assignType = true;
-    let type: TypesNative | TypesNative[] = "null";
+    let type: TypeInfo | TypesNative = "null";
 
     if (this.match(TokenType.COLON)) {
-      const types: TypesNative[] = [];
-      const firstTypeToken = this.consume(
-        TokenType.IDENTIFIER,
-        "Expected return type.",
-      );
-      types.push(firstTypeToken.value as TypesNative);
+      const tokens: Token[] = [];
 
-      while (this.peek().kind === TokenType.PIPE) {
-        this.advance();
-        const typeToken = this.consume(
-          TokenType.IDENTIFIER,
-          "Expected type after '|'.",
-        );
-        types.push(typeToken.value as TypesNative);
+      while (this.peek().kind != TokenType.EQUALS) {
+        tokens.push(this.advance());
       }
 
-      type = types.length === 1 ? types[0] : types;
+      type = new ParseType(tokens).parse();
       assignType = false;
     }
 
@@ -716,7 +713,7 @@ export class Parser {
 
     return {
       kind: "ImportStatement",
-      type: "null",
+      type: createTypeInfo("null"),
       value: null,
       path: AST_STRING(path.value as string, path.loc),
       isStdLib: isStdLib,
@@ -738,7 +735,7 @@ export class Parser {
     return {
       kind: "CallExpr",
       callee,
-      type: "null",
+      type: createTypeInfo("null"),
       arguments: args,
       loc: this.makeLoc(callee.loc, paren.loc),
     } as CallExpr;
@@ -860,10 +857,14 @@ export class Parser {
     return this.getPrecedence(this.peek().kind);
   }
 
-  private inferType(left: Expr, right: Expr): TypesNative {
-    if (left.type === "string" || right.type === "string") return "string";
-    if (left.type === "float" || right.type === "float") return "float";
-    return "int";
+  private inferType(left: Expr, right: Expr): TypeInfo {
+    if (left.type.baseType === "string" || right.type.baseType === "string") {
+      return createTypeInfo("string");
+    }
+    if (left.type.baseType === "float" || right.type.baseType === "float") {
+      return createTypeInfo("float");
+    }
+    return createTypeInfo("int");
   }
 
   private makeLoc(start: Loc, end: Loc): Loc {

@@ -7,25 +7,24 @@
  * See the LICENSE file in the project root for full license information.
  */
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
-import { LLVMType } from "../frontend/parser/ast.ts";
-import { TypesNative } from "../frontend/values.ts";
+import { LLVMType, TypeInfo } from "../frontend/parser/ast.ts";
 import { FunctionBuilder } from "./function_builder.ts";
 
 export interface StdLibFunction {
   name: string;
-  returnType: string;
+  returnType: TypeInfo;
   llvmType: LLVMType;
   params: string[];
   isVariadic: boolean;
-  llvmName?: string;
+  llvmName: string;
   ir?: string;
   isStdLib?: boolean;
 }
 
 export interface Function {
   name: string;
-  returnType: TypesNative | TypesNative[];
-  params: { name: string; type: string; llvmType: string }[];
+  returnType: TypeInfo;
+  params: { name: string; type: TypeInfo; llvmType: string }[];
   isVariadic: boolean;
   llvmType: LLVMType;
 }

@@ -13,10 +13,6 @@ import { Expr as _Expr } from "./parser/ast.ts";
 //   typeParams: TypesNative[];
 // }
 
-export interface IParsedTypes {
-  types: TypesNative[];
-}
-
 export type TypesNative =
   | "string"
   | "id"

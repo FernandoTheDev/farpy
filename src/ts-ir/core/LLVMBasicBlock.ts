@@ -308,6 +308,7 @@ export class LLVMBasicBlock {
         return 4;
       case "i64":
       case "double":
+      case "ptr":
         return 8;
       case "i128":
         return 16;
@@ -316,7 +317,6 @@ export class LLVMBasicBlock {
       default:
         // For struct types or user-defined types, we would need more information
         // For now, default to 8 bytes (pointer size on 64-bit systems)
-        console.log("Where");
         if (baseType.startsWith("%") || baseType.startsWith("@")) {
           return 8;
         }
@@ -379,17 +379,21 @@ export class LLVMBasicBlock {
   public allocaInst(varType: string = "i32"): IRValue {
     const tmp = this.nextTemp();
     this.add(`${tmp} = alloca ${varType}, align ${this.getAlign(varType)}`);
-    return { value: tmp, type: `${varType}*` };
+    return {
+      value: tmp,
+      type: varType == "ptr" ? `${varType}` : `${varType}*`,
+    };
   }
 
   public loadInst(ptr: IRValue): IRValue {
-    if (!ptr.type.endsWith("*")) {
+    if (!ptr.type.endsWith("*") && ptr.type != "ptr") {
       throw new Error(`Erro: Tentativa de load em não-ponteiro (${ptr.type})`);
     }
-    const base = ptr.type.slice(0, -1);
+    const base = ptr.type != "ptr" ? ptr.type.slice(0, -1) : ptr.type;
+    const ptrTypeInInst = ptr.type == "ptr" ? "ptr" : `${base}*`;
     const tmp = this.nextTemp();
     this.add(
-      `${tmp} = load ${base}, ${base}* ${ptr.value}, align ${
+      `${tmp} = load ${base}, ${ptrTypeInInst} ${ptr.value}, align ${
         this.getAlign(base)
       }`,
     );
@@ -397,15 +401,17 @@ export class LLVMBasicBlock {
   }
 
   public storeInst(value: IRValue, ptr: IRValue): void {
-    if (!ptr.type.endsWith("*")) {
+    if (!ptr.type.endsWith("*") && ptr.type != "ptr") {
       throw new Error(`Erro store: alvo não é ponteiro`);
     }
-    const base = ptr.type.slice(0, -1);
+    const base = ptr.type != "ptr" ? ptr.type.slice(0, -1) : ptr.type;
+    const ptrTypeInInst = ptr.type == "ptr" ? "ptr" : `${base}*`;
+
     if (value.type !== base) {
       throw new Error(`Erro store: tipos ${value.type} != ${base}`);
     }
     this.add(
-      `store ${value.type} ${value.value}, ${value.type}* ${ptr.value}, align ${
+      `store ${value.type} ${value.value}, ${ptrTypeInInst} ${ptr.value}, align ${
         this.getAlign(base)
       }`,
     );
@@ -573,5 +579,459 @@ export class LLVMBasicBlock {
 
   public toString(): string {
     return `${this.label}:\n${this.instructions.join("\n")}`;
+  }
+
+  /**
+   * Extensions to LLVMBasicBlock.ts to support arrays, array indexing,
+   * structs, and multidimensional arrays
+   */
+
+  // =========== ARRAY SUPPORT ===========
+
+  /**
+   * Creates an array allocation on the stack
+   *
+   * @param elementType The type of elements in the array
+   * @param size The number of elements in the array
+   * @returns An IRValue pointing to the array
+   */
+  public allocaArrayInst(elementType: string, size: number): IRValue {
+    const arrayType = `[${size} x ${elementType}]`;
+    const tmp = this.nextTemp();
+    this.add(`${tmp} = alloca ${arrayType}, align ${this.getAlign(arrayType)}`);
+    return { value: tmp, type: `${arrayType}*` };
+  }
+
+  /**
+   * Creates a global array
+   * This would typically be called by your module manager, not directly from the basic block
+   *
+   * @param name The name of the global array
+   * @param elementType The type of elements in the array
+   * @param size The number of elements in the array
+   * @param initialValues Optional initial values for the array elements
+   * @returns The IR code for the global array declaration
+   */
+  public static createGlobalArray(
+    name: string,
+    elementType: string,
+    size: number,
+    initialValues?: string[],
+  ): string {
+    const arrayType = `[${size} x ${elementType}]`;
+
+    if (initialValues && initialValues.length > 0) {
+      const initStr = initialValues
+        .map((val) => `${elementType} ${val}`)
+        .join(", ");
+      return `@${name} = global ${arrayType} [${initStr}]`;
+    } else {
+      return `@${name} = global ${arrayType} zeroinitializer`;
+    }
+  }
+
+  /** x[index]
+   * Gets a pointer to an element in an array
+   *
+   * @param arrayPtr The pointer to the array
+   * @param index The IRValue representing the index
+   * @returns An IRValue pointing to the element
+   */
+  public getArrayElementPtr(arrayPtr: IRValue, index: IRValue): IRValue {
+    // Extract the array type from the pointer type
+    if (!arrayPtr.type.endsWith("*")) {
+      throw new Error(
+        `getArrayElementPtr requires a pointer to an array, got ${arrayPtr.type}`,
+      );
+    }
+
+    const arrayType = arrayPtr.type.slice(0, -1); // Remove the '*'
+
+    // Check and convert index to i32 if needed
+    let indexValue = index;
+    if (index.type !== "i32") {
+      indexValue = this.convertValueToType(index, "i32");
+    }
+
+    // Get a match for [N x type] to extract the element type
+    const match = arrayType.match(/\[(\d+) x ([^\]]+)\]/);
+    if (!match) {
+      throw new Error(`Invalid array type: ${arrayType}`);
+    }
+
+    const elementType = match[2];
+    const tmp = this.nextTemp();
+
+    // Use GEP instruction to get element pointer
+    this.add(
+      `${tmp} = getelementptr inbounds ${arrayType}, ${arrayPtr.type} ${arrayPtr.value}, i32 0, ${indexValue.type} ${indexValue.value}`,
+    );
+
+    return { value: tmp, type: `${elementType}*` };
+  }
+
+  /** x[index] = value
+   * Sets an element in an array
+   *
+   * @param arrayPtr The pointer to the array
+   * @param index The index of the element to set
+   * @param value The value to set
+   */
+  public setArrayElement(
+    arrayPtr: IRValue,
+    index: IRValue,
+    value: IRValue,
+  ): void {
+    const elementPtr = this.getArrayElementPtr(arrayPtr, index);
+
+    // Extract the element type from the pointer
+    const elementType = elementPtr.type.slice(0, -1);
+
+    // Convert the value to the element type if needed
+    const convertedValue = this.convertValueToType(value, elementType);
+
+    // Store the value
+    this.storeInst(convertedValue, elementPtr);
+  }
+
+  /** x[index]
+   * Gets an element from an array
+   *
+   * @param arrayPtr The pointer to the array
+   * @param index The index of the element to get
+   * @returns The IRValue of the loaded element
+   */
+  public getArrayElement(arrayPtr: IRValue, index: IRValue): IRValue {
+    const elementPtr = this.getArrayElementPtr(arrayPtr, index);
+    return this.loadInst(elementPtr);
+  }
+
+  // =========== MULTIDIMENSIONAL ARRAY SUPPORT ===========
+
+  /**
+   * Creates a multidimensional array allocation on the stack
+   *
+   * @param elementType The base type of elements in the array
+   * @param dimensions The array dimensions (e.g., [3, 4] for a 3x4 array)
+   * @returns An IRValue pointing to the multidimensional array
+   */
+  public allocaMultiDimArrayInst(
+    elementType: string,
+    dimensions: number[],
+  ): IRValue {
+    // Build the array type from innermost to outermost
+    let arrayType = elementType;
+    for (let i = dimensions.length - 1; i >= 0; i--) {
+      arrayType = `[${dimensions[i]} x ${arrayType}]`;
+    }
+
+    const tmp = this.nextTemp();
+    this.add(`${tmp} = alloca ${arrayType}, align ${this.getAlign(arrayType)}`);
+    return { value: tmp, type: `${arrayType}*` };
+  }
+
+  /**
+   * Gets a pointer to an element in a multidimensional array
+   *
+   * @param arrayPtr The pointer to the multidimensional array
+   * @param indices The indices for each dimension
+   * @returns An IRValue pointing to the element
+   */
+  public getMultiDimArrayElementPtr(
+    arrayPtr: IRValue,
+    indices: IRValue[],
+  ): IRValue {
+    if (!arrayPtr.type.endsWith("*")) {
+      throw new Error(
+        `getMultiDimArrayElementPtr requires a pointer to an array, got ${arrayPtr.type}`,
+      );
+    }
+
+    const arrayType = arrayPtr.type.slice(0, -1); // Remove the '*'
+
+    // Convert all indices to i32 if needed
+    const convertedIndices = indices.map((idx) =>
+      idx.type !== "i32" ? this.convertValueToType(idx, "i32") : idx
+    );
+
+    // Build the GEP instruction with all indices
+    const tmp = this.nextTemp();
+
+    // Format the indices, starting with a 0 for the pointer
+    const indexStr = convertedIndices.map((idx) => `${idx.type} ${idx.value}`)
+      .join(", ");
+
+    this.add(
+      `${tmp} = getelementptr inbounds ${arrayType}, ${arrayPtr.type} ${arrayPtr.value}, i32 0, ${indexStr}`,
+    );
+
+    // Determine the element type
+    let currentType = arrayType;
+    for (let i = 0; i < convertedIndices.length; i++) {
+      const match = currentType.match(/\[(\d+) x ([^\]]+)\]/);
+      if (!match) {
+        throw new Error(`Invalid array type at dimension ${i}: ${currentType}`);
+      }
+      currentType = match[2];
+    }
+
+    return { value: tmp, type: `${currentType}*` };
+  }
+
+  /**
+   * Sets an element in a multidimensional array
+   *
+   * @param arrayPtr The pointer to the multidimensional array
+   * @param indices The indices for each dimension
+   * @param value The value to set
+   */
+  public setMultiDimArrayElement(
+    arrayPtr: IRValue,
+    indices: IRValue[],
+    value: IRValue,
+  ): void {
+    const elementPtr = this.getMultiDimArrayElementPtr(arrayPtr, indices);
+
+    // Extract the element type from the pointer
+    const elementType = elementPtr.type.slice(0, -1);
+
+    // Convert the value to the element type if needed
+    const convertedValue = this.convertValueToType(value, elementType);
+
+    // Store the value
+    this.storeInst(convertedValue, elementPtr);
+  }
+
+  /**
+   * Gets an element from a multidimensional array
+   *
+   * @param arrayPtr The pointer to the multidimensional array
+   * @param indices The indices for each dimension
+   * @returns The IRValue of the loaded element
+   */
+  public getMultiDimArrayElement(
+    arrayPtr: IRValue,
+    indices: IRValue[],
+  ): IRValue {
+    const elementPtr = this.getMultiDimArrayElementPtr(arrayPtr, indices);
+    return this.loadInst(elementPtr);
+  }
+
+  // =========== STRUCT SUPPORT ===========
+
+  /**
+   * Creates a named struct type
+   * This would typically be called by your module manager, not directly from the basic block
+   *
+   * @param structName The name of the struct
+   * @param fieldTypes The types of the struct fields
+   * @returns The IR code for the struct type definition
+   */
+  public static createStructType(
+    structName: string,
+    fieldTypes: string[],
+  ): string {
+    const fieldsStr = fieldTypes.join(", ");
+    return `%${structName} = type { ${fieldsStr} }`;
+  }
+
+  /**
+   * Allocates a struct on the stack
+   *
+   * @param structType The type of the struct (e.g., "%MyStruct")
+   * @returns An IRValue pointing to the struct
+   */
+  public allocaStructInst(structType: string): IRValue {
+    const tmp = this.nextTemp();
+    this.add(
+      `${tmp} = alloca ${structType}, align ${this.getAlign(structType)}`,
+    );
+    return { value: tmp, type: `${structType}*` };
+  }
+
+  /** x->y
+   * Gets a pointer to a field in a struct
+   *
+   * @param structPtr The pointer to the struct
+   * @param fieldIndex The index of the field (0-based)
+   * @param fieldType The type of the field
+   * @returns An IRValue pointing to the field
+   */
+  public getStructFieldPtr(
+    structPtr: IRValue,
+    fieldIndex: number,
+    fieldType: string,
+  ): IRValue {
+    if (!structPtr.type.endsWith("*")) {
+      throw new Error(
+        `getStructFieldPtr requires a pointer to a struct, got ${structPtr.type}`,
+      );
+    }
+
+    const structType = structPtr.type.slice(0, -1); // Remove the '*'
+    const tmp = this.nextTemp();
+
+    this.add(
+      `${tmp} = getelementptr inbounds ${structType}, ${structPtr.type} ${structPtr.value}, i32 0, i32 ${fieldIndex}`,
+    );
+
+    return { value: tmp, type: `${fieldType}*` };
+  }
+
+  /** x->y = z
+   * Sets a field in a struct
+   *
+   * @param structPtr The pointer to the struct
+   * @param fieldIndex The index of the field (0-based)
+   * @param fieldType The type of the field
+   * @param value The value to set
+   */
+  public setStructField(
+    structPtr: IRValue,
+    fieldIndex: number,
+    fieldType: string,
+    value: IRValue,
+  ): void {
+    const fieldPtr = this.getStructFieldPtr(structPtr, fieldIndex, fieldType);
+
+    // Convert the value to the field type if needed
+    const convertedValue = this.convertValueToType(value, fieldType);
+
+    // Store the value
+    this.storeInst(convertedValue, fieldPtr);
+  }
+
+  /**
+   * Gets a field from a struct
+   *
+   * @param structPtr The pointer to the struct
+   * @param fieldIndex The index of the field (0-based)
+   * @param fieldType The type of the field
+   * @returns The IRValue of the loaded field
+   */
+  public getStructField(
+    structPtr: IRValue,
+    fieldIndex: number,
+    fieldType: string,
+  ): IRValue {
+    const fieldPtr = this.getStructFieldPtr(structPtr, fieldIndex, fieldType);
+    return this.loadInst(fieldPtr);
+  }
+
+  // =========== ARRAY OF STRUCTS & STRUCT OF ARRAYS SUPPORT ===========
+
+  /**
+   * Creates an array of structs
+   *
+   * @param structType The type of the struct (e.g., "%MyStruct")
+   * @param size The number of structs in the array
+   * @returns An IRValue pointing to the array of structs
+   */
+  public allocaArrayOfStructsInst(structType: string, size: number): IRValue {
+    const arrayType = `[${size} x ${structType}]`;
+    const tmp = this.nextTemp();
+    this.add(`${tmp} = alloca ${arrayType}, align ${this.getAlign(arrayType)}`);
+    return { value: tmp, type: `${arrayType}*` };
+  }
+
+  /**
+   * Gets a pointer to a struct in an array of structs
+   *
+   * @param arrayPtr The pointer to the array of structs
+   * @param index The index of the struct to access
+   * @param structType The type of the struct
+   * @returns An IRValue pointing to the struct
+   */
+  public getStructFromArray(
+    arrayPtr: IRValue,
+    index: IRValue,
+    _structType: string,
+  ): IRValue {
+    return this.getArrayElementPtr(arrayPtr, index);
+  }
+
+  /**
+   * Gets a pointer to a field in a struct within an array of structs
+   *
+   * @param arrayPtr The pointer to the array of structs
+   * @param index The index of the struct in the array
+   * @param fieldIndex The index of the field in the struct
+   * @param fieldType The type of the field
+   * @returns An IRValue pointing to the field
+   */
+  public getFieldFromArrayOfStructs(
+    arrayPtr: IRValue,
+    index: IRValue,
+    fieldIndex: number,
+    fieldType: string,
+  ): IRValue {
+    const structPtr = this.getStructFromArray(
+      arrayPtr,
+      index,
+      // @ts-ignore: Dont have error
+      arrayPtr.type.slice(0, -1).match(/\[\d+ x ([^\]]+)\]/)[1],
+    );
+    return this.getStructFieldPtr(structPtr, fieldIndex, fieldType);
+  }
+
+  /**
+   * Gets a field value from a struct within an array of structs
+   *
+   * @param arrayPtr The pointer to the array of structs
+   * @param index The index of the struct in the array
+   * @param fieldIndex The index of the field in the struct
+   * @param fieldType The type of the field
+   * @returns The IRValue of the loaded field
+   */
+  public loadFieldFromArrayOfStructs(
+    arrayPtr: IRValue,
+    index: IRValue,
+    fieldIndex: number,
+    fieldType: string,
+  ): IRValue {
+    const fieldPtr = this.getFieldFromArrayOfStructs(
+      arrayPtr,
+      index,
+      fieldIndex,
+      fieldType,
+    );
+    return this.loadInst(fieldPtr);
+  }
+
+  /**
+   * Sets a field value in a struct within an array of structs
+   *
+   * @param arrayPtr The pointer to the array of structs
+   * @param index The index of the struct in the array
+   * @param fieldIndex The index of the field in the struct
+   * @param fieldType The type of the field
+   * @param value The value to set
+   */
+  public storeFieldInArrayOfStructs(
+    arrayPtr: IRValue,
+    index: IRValue,
+    fieldIndex: number,
+    fieldType: string,
+    value: IRValue,
+  ): void {
+    const fieldPtr = this.getFieldFromArrayOfStructs(
+      arrayPtr,
+      index,
+      fieldIndex,
+      fieldType,
+    );
+    const convertedValue = this.convertValueToType(value, fieldType);
+    this.storeInst(convertedValue, fieldPtr);
+  }
+
+  // Helper method to determine if a type is an array type
+  private isArrayType(type: string): boolean {
+    return type.startsWith("[") && type.includes("x");
+  }
+
+  // Helper method to extract element type from an array type
+  private getArrayElementType(arrayType: string): string {
+    const match = arrayType.match(/\[\d+ x ([^\]]+)\]/);
+    return match ? match[1] : "";
   }
 }

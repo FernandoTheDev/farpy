@@ -1,6 +1,4 @@
-new arr1: Array<int> = []
-new arr2: int[] = []
-new arr3 = [0, 1, 2] // int[]
-// new arr4 = [0, 1.1, 2.2] // error
+new arr1: int[] = [10, 20]
+new arr2 = [0, 1, 2] // int[]
 
-// new *buffer = &arr1
+// arr1[3][2][1] = 0

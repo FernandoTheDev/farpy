@@ -232,6 +232,9 @@ export class FarpyCompilerMain {
 
       const semantic = Semantic.getInstance(this.reporter);
       ast = semantic.semantic(ast);
+
+      if (!this.checkErrorsAndWarnings()) return;
+
       semantic.resetInstance(); // Reset
 
       if (this.shouldOptimize()) {

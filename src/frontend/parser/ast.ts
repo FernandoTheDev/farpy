@@ -29,6 +29,74 @@ export enum LLVMType {
   STRING = "i8*",
 }
 
+export interface TypeInfo {
+  baseType: TypesNative;
+  isArray: boolean;
+  dimensions: number;
+  isPointer: boolean;
+  pointerLevel: number;
+}
+
+export function createTypeInfo(baseType: TypesNative): TypeInfo {
+  return {
+    baseType,
+    isArray: false,
+    dimensions: 0,
+    isPointer: false,
+    pointerLevel: 0,
+  };
+}
+
+export function createArrayType(
+  baseType: TypesNative,
+  dimensions: number = 1,
+): TypeInfo {
+  return {
+    baseType,
+    isArray: true,
+    dimensions,
+    isPointer: false,
+    pointerLevel: 0,
+  };
+}
+
+export function createPointerType(
+  baseType: TypeInfo,
+  pointerLevel: number = 1,
+): TypeInfo {
+  if (typeof baseType !== "string") {
+    return {
+      ...baseType,
+      isPointer: true,
+      pointerLevel: baseType.pointerLevel + pointerLevel,
+    };
+  }
+
+  return {
+    baseType,
+    isArray: false,
+    dimensions: 0,
+    isPointer: true,
+    pointerLevel,
+  };
+}
+
+export function typeInfoToString(type: TypeInfo): string {
+  let result = type.baseType;
+
+  if (type.isArray) {
+    for (let i = 0; i < type.dimensions; i++) {
+      result += "[]";
+    }
+  }
+
+  if (type.isPointer) {
+    result = "*".repeat(type.pointerLevel) + result;
+  }
+
+  return result;
+}
+
 export type NodeType =
   | "Program"
   | "BinaryExpr"
@@ -41,6 +109,7 @@ export type NodeType =
   | "BooleanLiteral"
   | "FloatLiteral"
   | "BinaryLiteral"
+  | "ArrayLiteral"
   | "VariableDeclaration"
   | "CallExpr"
   | "ImportStatement"
@@ -56,11 +125,13 @@ export type NodeType =
   | "StructStatement"
   | "ExternStatement"
   | "WhileStatement"
-  | "UnaryExpr";
+  | "UnaryExpr"
+  | "AddressOfExpr"
+  | "DereferenceExpr";
 
 export interface Stmt {
   kind: NodeType;
-  type: TypesNative | TypesNative[];
+  type: TypeInfo;
   // deno-lint-ignore no-explicit-any
   value: any;
   loc: Loc;
@@ -71,7 +142,6 @@ export interface Expr extends Stmt {}
 
 export interface Program extends Stmt {
   kind: "Program";
-  type: "null";
   body?: Stmt[];
 }
 
@@ -96,7 +166,7 @@ export interface VariableDeclaration extends Stmt {
   kind: "VariableDeclaration";
   id: Identifier;
   value: Expr;
-  type: TypesNative | TypesNative[];
+  type: TypeInfo;
   mutable: boolean;
   loc: Loc;
 }
@@ -105,7 +175,7 @@ export interface AssignmentDeclaration extends Stmt {
   kind: "AssignmentDeclaration";
   id: Identifier;
   value: Expr;
-  type: TypesNative | TypesNative[];
+  type: TypeInfo;
   loc: Loc;
 }
 
@@ -117,7 +187,7 @@ export interface Identifier extends Expr {
 export function AST_IDENTIFIER(id: string, loc: Loc): Identifier {
   return {
     kind: "Identifier",
-    type: "id",
+    type: createTypeInfo("id"),
     value: id,
     loc: loc,
   } as Identifier;
@@ -131,7 +201,7 @@ export interface StringLiteral extends Expr {
 export function AST_STRING(str: string, loc: Loc): StringLiteral {
   return {
     kind: "StringLiteral",
-    type: "string",
+    type: createTypeInfo("string"),
     value: str,
     loc: loc,
   } as StringLiteral;
@@ -145,7 +215,7 @@ export interface IntLiteral extends Expr {
 export function AST_INT(n: number = 0, loc: Loc): IntLiteral {
   return {
     kind: "IntLiteral",
-    type: "int",
+    type: createTypeInfo("int"),
     value: n,
     loc: loc,
   } as IntLiteral;
@@ -159,7 +229,7 @@ export interface FloatLiteral extends Expr {
 export function AST_FLOAT(n: number = 0, loc: Loc): FloatLiteral {
   return {
     kind: "FloatLiteral",
-    type: "float",
+    type: createTypeInfo("float"),
     value: n,
     loc: loc,
   } as FloatLiteral;
@@ -173,7 +243,7 @@ export interface BinaryLiteral extends Expr {
 export function AST_BINARY(n: string = "0b0", loc: Loc): BinaryLiteral {
   return {
     kind: "BinaryLiteral",
-    type: "binary",
+    type: createTypeInfo("binary"),
     value: n,
     loc: loc,
   } as BinaryLiteral;
@@ -187,7 +257,7 @@ export interface NullLiteral extends Expr {
 export function AST_NULL(loc: Loc): NullLiteral {
   return {
     kind: "NullLiteral",
-    type: "null",
+    type: createTypeInfo("null"),
     value: null,
     loc: loc,
   } as NullLiteral;
@@ -201,16 +271,45 @@ export interface BooleanLiteral extends Expr {
 export function AST_BOOL(value: boolean, loc: Loc): BooleanLiteral {
   return {
     kind: "BooleanLiteral",
-    type: "bool",
+    type: createTypeInfo("bool"),
     value: value,
     loc: loc,
   } as BooleanLiteral;
 }
 
+export interface ArrayLiteral extends Expr {
+  kind: "ArrayLiteral";
+  value: Expr[];
+  elementType?: TypeInfo; // Tipo dos elementos do array
+}
+
+export function AST_ARRAY(
+  value: Expr[],
+  loc: Loc,
+  elementType?: TypeInfo,
+): ArrayLiteral {
+  if (!elementType && value.length > 0) {
+    elementType = value[0].type;
+  }
+
+  const arrayTypeInfo = createArrayType(
+    elementType?.baseType as TypesNative || "null",
+    1,
+  );
+
+  return {
+    kind: "ArrayLiteral",
+    type: arrayTypeInfo,
+    value: value,
+    elementType: elementType,
+    loc: loc,
+  } as ArrayLiteral;
+}
+
 export interface CallExpr extends Expr {
   kind: "CallExpr";
   callee: Identifier;
-  type: TypesNative | TypesNative[];
+  type: TypeInfo;
   arguments: Expr[] | Stmt[];
 }
 
@@ -222,14 +321,14 @@ export interface ImportStatement extends Stmt {
 
 export interface FunctionArgs {
   id: Identifier;
-  type: TypesNative | TypesNative[];
+  type: TypeInfo;
   default?: Expr;
   llvmType?: LLVMType;
 }
 
 export interface FunctionDeclaration extends Stmt {
   kind: "FunctionDeclaration";
-  type: TypesNative | TypesNative[];
+  type: TypeInfo;
   args: FunctionArgs[];
   id: Identifier;
   block: Stmt[];
@@ -243,7 +342,7 @@ export interface ReturnStatement extends Stmt {
 
 export interface IfStatement extends Stmt {
   kind: "IfStatement" | "ElifStatement";
-  type: TypesNative | TypesNative[]; // Type of return if exists
+  type: TypeInfo;
   value: Expr | Expr[] | Stmt; // Value of return if exists
   condition: Expr | Expr[];
   primary: Stmt[]; // if {} | elif {}
@@ -256,36 +355,37 @@ export interface ElifStatement extends IfStatement {
 
 export interface ElseStatement extends Stmt {
   kind: "ElseStatement";
-  type: TypesNative | TypesNative[];
+  type: TypeInfo;
   value: Expr | Expr[] | Stmt;
   primary: Stmt[];
 }
 
 export interface ForRangeStatement extends Stmt {
   kind: "ForRangeStatement";
-  id: Identifier | null; // O `as i`, pode ser null
-  from: Expr; // início do range
-  to: Expr; // fim do range
+  id: Identifier | null;
+  from: Expr;
+  to: Expr;
   inclusive: boolean; // `..=` = true, `..` = false
-  step?: Expr; // valor de step, se houver
-  block: Stmt[]; // corpo do for
+  step?: Expr;
+  block: Stmt[];
 }
 
 // TODO
 export interface ForCStyleStatement extends Stmt {
   kind: "ForCStyleStatement";
-  init?: Stmt; // declaração ou atribuição, pode ser undefined
-  condition: Expr; // condição de parada
-  update: Expr; // incremento (IncrementExpr, etc.)
-  block: Stmt[]; // corpo do for
+  init?: Stmt;
+  condition: Expr;
+  update: Expr;
+  block: Stmt[];
 }
 
 export interface StructStatement extends Stmt {
   kind: "StructStatement";
   name: Identifier;
-  body: { id: Identifier; value: Expr }[];
+  body: { id: Identifier; value: Expr; type: TypeInfo }[];
 }
 
+// x->y
 export interface ArrowExpression extends Expr {
   kind: "ArrowExpression";
   from: Expr;
@@ -299,7 +399,7 @@ export interface ExternStatement extends Stmt {
   file?: string;
   includes: string[];
   defines: Define[];
-  functions: Function[]; // cparse.ts
+  functions: Function[]; // cparse.ts, ...
   code: string;
 }
 
@@ -309,36 +409,33 @@ export interface WhileStatement extends Stmt {
   block: Stmt[];
 }
 
-/**
- * Representa uma expressão unária (como !x, -x, *p, &v)
- */
 export interface UnaryExpr extends Expr {
   kind: "UnaryExpr";
-  operator: string; // "*", "&", "-", "!"
+  operator: string; // "-", "!", "&", "*"
   operand: Expr;
 }
 
-/**
- * Função helper para criar expressões unárias
- */
+export interface DereferenceExpr extends Expr {
+  kind: "DereferenceExpr";
+  operand: Expr;
+}
 
-function inferUnaryType(operator: string, operand: Expr): TypesNative {
+export interface AddressOfExpr extends Expr {
+  kind: "AddressOfExpr";
+  operand: Expr;
+}
+
+function inferUnaryType(
+  operator: string,
+  operand: Expr,
+): TypeInfo {
   switch (operator) {
-    // case "*":
-    //   // Desreferenciar um ponteiro dá o tipo base
-    //   if (operand.type.toString().startsWith("ptr_")) {
-    //     return operand.type.toString().substring(4) as TypesNative;
-    //   }
-    //   return "null";
-    // case "&":
-    //   // Referenciar um valor cria um ponteiro para esse tipo
-    //   return `ptr_${operand.type}`;
     case "-":
-      return operand.type as TypesNative;
+      return operand.type;
     case "!":
-      return "bool";
+      return createTypeInfo("bool");
     default:
-      return "null";
+      return createTypeInfo("null");
   }
 }
 
@@ -352,6 +449,49 @@ export function AST_UNARY(
     operator: operator,
     operand: operand,
     type: inferUnaryType(operator, operand),
+    value: null,
+    loc,
+  };
+}
+
+export function AST_DEREFERENCE(operand: Expr, loc: Loc): DereferenceExpr {
+  let resultType: TypeInfo = createTypeInfo("null");
+  const typeInfo = operand.type as TypeInfo;
+
+  if (typeInfo.isPointer && typeInfo.pointerLevel > 0) {
+    if (typeInfo.pointerLevel === 1) {
+      resultType = typeInfo;
+    } else {
+      resultType = {
+        ...typeInfo,
+        pointerLevel: typeInfo.pointerLevel - 1,
+      };
+    }
+  }
+
+  return {
+    kind: "DereferenceExpr",
+    operand: operand,
+    type: resultType,
+    value: null,
+    loc,
+  };
+}
+
+export function AST_ADDRESS_OF(operand: Expr, loc: Loc): AddressOfExpr {
+  let resultType: TypeInfo = createTypeInfo("null");
+  const typeInfo = operand.type as TypeInfo;
+
+  resultType = {
+    ...typeInfo,
+    isPointer: true,
+    pointerLevel: typeInfo.pointerLevel + 1,
+  };
+
+  return {
+    kind: "AddressOfExpr",
+    operand: operand,
+    type: resultType,
     value: null,
     loc,
   };

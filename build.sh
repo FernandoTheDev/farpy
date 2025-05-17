@@ -13,7 +13,7 @@ function build() {
 function install_bin() {
     build
     echo "📦 Installing $BIN_NAME to $INSTALL_PATH..."
-    sudo install -m 0755 "$BIN_NAME" "$INSTALL_PATH"
+    sudo install -m 0755 "bin/$BIN_NAME" "$INSTALL_PATH"
     echo "✅ Installed successfully!"
 }
 
