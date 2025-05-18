@@ -4,3 +4,4 @@ bin
 farpy
 *.ll
 repl.fp
+ast.json

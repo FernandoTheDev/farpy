@@ -65,11 +65,9 @@ export function createPointerType(
   pointerLevel: number = 1,
 ): TypeInfo {
   if (typeof baseType !== "string") {
-    return {
-      ...baseType,
-      isPointer: true,
-      pointerLevel: baseType.pointerLevel + pointerLevel,
-    };
+    baseType.isPointer = true;
+    baseType.pointerLevel = baseType.pointerLevel + pointerLevel;
+    return baseType;
   }
 
   return {

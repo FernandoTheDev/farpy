@@ -393,14 +393,14 @@ export class LLVMIRGenerator {
         .map((arg) => {
           const argType = arg.llvmType
             ? typeChecker.mapToLLVMType(arg.llvmType)
-            : typeChecker.mapToLLVMType(arg.type as LLVMType);
+            : typeChecker.mapToLLVMType(arg.type.baseType as LLVMType);
 
           return argType;
         })
         .join(", ");
 
       const returnType = typeChecker.mapToLLVMType(
-        fn.returnType as LLVMType,
+        fn.returnType.baseType as LLVMType,
       );
 
       this.module.addGlobal(

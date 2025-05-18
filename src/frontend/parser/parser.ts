@@ -193,8 +193,6 @@ export class Parser {
         let count = 1;
 
         if (token.kind == TokenType.EXPONENTIATION) {
-          count += 2;
-        } else {
           count++;
         }
 

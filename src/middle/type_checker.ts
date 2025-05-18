@@ -48,6 +48,7 @@ export class TypeChecker {
     this.typeMap.set("bool", LLVMType.I1);
     this.typeMap.set("binary", LLVMType.I32);
     this.typeMap.set("null", LLVMType.PTR);
+    this.typeMap.set("ptr", LLVMType.PTR);
     this.typeMap.set("id", LLVMType.PTR);
     this.typeMap.set("void", LLVMType.VOID);
     this.typeMap.set("i8*", LLVMType.STRING);
