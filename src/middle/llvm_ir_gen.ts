@@ -8,6 +8,7 @@
  */
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import {
+  ArrayLiteral,
   AssignmentDeclaration,
   BinaryExpr,
   BinaryLiteral,
@@ -27,6 +28,7 @@ import {
   ReturnStatement,
   Stmt,
   StringLiteral,
+  TypeInfo,
   UnaryExpr,
   VariableDeclaration,
   WhileStatement,
@@ -172,6 +174,8 @@ export class LLVMIRGenerator {
           entry,
           main,
         );
+      case "ArrayLiteral":
+        return this.generateArrayLiteral(node as ArrayLiteral, entry, main);
       case "StringLiteral":
         return this.generateStringLiteral(node as StringLiteral, entry, main);
       case "IntLiteral":
@@ -195,6 +199,14 @@ export class LLVMIRGenerator {
     }
   }
 
+  private generateArrayLiteral(
+    node: ArrayLiteral,
+    entry: LLVMBasicBlock,
+    _main: LLVMFunction,
+  ): IRValue {
+    return entry.allocaArrayInst(node.llvmType!, node.value.length);
+  }
+
   private generateUnaryExpr(
     node: UnaryExpr,
     entry: LLVMBasicBlock,
@@ -209,40 +221,49 @@ export class LLVMIRGenerator {
     }
 
     switch (node.operator) {
-      // case "*": { // Pointer dereference
-      //   // Check if operand is a pointer type
-      //   if (!operand.type.endsWith("*")) {
-      //     this.reporter.addError(
-      //       node.loc,
-      //       `Cannot dereference non-pointer type ${operand.type}`,
-      //     );
-      //     return this.makeIrValue("0", "i32"); // Default error value
-      //   }
-      //   // Get the pointed-to type by removing the asterisk
-      //   const pointedType = operand.type.substring(0, operand.type.length - 1);
-      //   return entry.loadInst({ value: operand.value, type: operand.type });
-      // }
+      case "*": { // Pointer dereference
+        // Check if operand is a pointer type
+        if (!operand.type.endsWith("*") && operand.type != "ptr") {
+          this.reporter.addError(
+            node.loc,
+            `Cannot dereference non-pointer type ${operand.type}`,
+          );
+          console.log("ERROR");
+          return this.makeIrValue("0", "i32"); // Default error value
+        }
+        return entry.loadInst({ value: operand.value, type: operand.type });
+      }
 
-      // case "&": // Address-of operator
-      //   // Check if operand is already an address (pointer) or has been loaded
-      //   if (
-      //     operand.value.startsWith("%") &&
-      //     !this.variables.has(node.operand.value)
-      //   ) {
-      //     // The operand is already an address or temporary variable
-      //     return { value: operand.value, type: `${operand.type}*` };
-      //   } else if (node.operand.kind === "Identifier") {
-      //     // For identifiers, return the original allocated address (not the loaded value)
-      //     const varPtr = this.variables.get((node.operand as Identifier).value);
-      //     if (varPtr) {
-      //       return { value: varPtr.value, type: `${operand.type}*` };
-      //     }
-      //   }
-      //   this.reporter.addError(
-      //     node.loc,
-      //     `Cannot take address of ${node.operand.kind}`,
-      //   );
-      //   return this.makeIrValue("0", "i32"); // Default error value
+      case "&": // Address-of operator
+        // Check if operand is already an address (pointer) or has been loaded
+        if (
+          operand.value.startsWith("%") &&
+          !this.variables.has(node.operand.value)
+        ) {
+          // The operand is already an address or temporary variable
+          return {
+            value: operand.value,
+            type: operand.type == "ptr"
+              ? `${operand.type}`
+              : `${operand.type}*`,
+          };
+        } else if (node.operand.kind === "Identifier") {
+          // For identifiers, return the original allocated address (not the loaded value)
+          const varPtr = this.variables.get((node.operand as Identifier).value);
+          if (varPtr) {
+            return {
+              value: varPtr.value,
+              type: operand.type == "ptr"
+                ? `${operand.type}`
+                : `${operand.type}*`,
+            };
+          }
+        }
+        this.reporter.addError(
+          node.loc,
+          `Cannot take address of ${node.operand.kind}`,
+        );
+        return this.makeIrValue("0", "i32"); // Default error value
 
       case "-":
         if (operand.type.startsWith("i")) {
@@ -372,14 +393,14 @@ export class LLVMIRGenerator {
         .map((arg) => {
           const argType = arg.llvmType
             ? typeChecker.mapToLLVMType(arg.llvmType)
-            : typeChecker.mapToLLVMType(arg.type as LLVMType);
+            : typeChecker.mapToLLVMType(arg.type.baseType as LLVMType);
 
           return argType;
         })
         .join(", ");
 
       const returnType = typeChecker.mapToLLVMType(
-        fn.returnType as LLVMType,
+        fn.returnType.baseType as LLVMType,
       );
 
       this.module.addGlobal(
@@ -726,7 +747,7 @@ export class LLVMIRGenerator {
     for (
       const arg of getFunc?.params! as {
         name: string;
-        type: string;
+        type: TypeInfo;
         llvmType: string;
       }[]
     ) {
@@ -743,13 +764,14 @@ export class LLVMIRGenerator {
       this.variables.set(argName, alloca);
     }
 
-    let haveReturn = false;
+    // TODO
+    let _haveReturn = false;
 
     try {
       for (const stmt of node.block) {
         this.generateNode(stmt, func);
         if (stmt.kind == "ReturnStatement") {
-          haveReturn = true;
+          _haveReturn = true;
         }
       }
     } catch (error) {
@@ -802,6 +824,7 @@ export class LLVMIRGenerator {
     }
 
     funcInfo = funcInfo as StdLibFunction;
+
     if (!this.declaredFuncs.has(funcName)) {
       this.declaredFuncs.add(funcName);
       if (funcInfo && (funcInfo as StdLibFunction).isStdLib != undefined) {
@@ -836,7 +859,7 @@ export class LLVMIRGenerator {
       argsTypes,
     );
 
-    if (funcInfo?.returnType === "void") {
+    if (funcInfo?.returnType.baseType === "void") {
       return this.makeIrValue("0", "i32");
     }
 
@@ -853,8 +876,8 @@ export class LLVMIRGenerator {
       return this.generateLogicalExpr(expr, entry, main);
     }
 
-    let left = this.generateNode(expr.left, main);
-    let right = this.generateNode(expr.right, main);
+    const left = this.generateNode(expr.left, main);
+    const right = this.generateNode(expr.right, main);
 
     if (this.debug) {
       entry.add(
@@ -863,25 +886,8 @@ export class LLVMIRGenerator {
     }
 
     switch (expr.operator) {
-      case "+": {
-        if (left.type.includes("i8") || right.type.includes("i8")) {
-          if (!this.declaredFuncs.has("string_concat")) {
-            this.declaredFuncs.add("string_concat");
-            this.module.addExternal(
-              "declare i8* @string_concat(i8*, i8*)",
-            );
-          }
-
-          return entry.callInst(
-            "i8*",
-            "string_concat",
-            [left, right],
-            [left.type, right.type],
-          );
-        }
-
+      case "+":
         return entry.addInst(left, right);
-      }
       case "-":
         return entry.subInst(left, right);
       case "*":
@@ -930,7 +936,7 @@ export class LLVMIRGenerator {
    */
   private generateLogicalExpr(
     expr: BinaryExpr,
-    entry: LLVMBasicBlock,
+    _entry: LLVMBasicBlock,
     main: LLVMFunction,
   ): IRValue {
     // Generate the left-hand side of the expression first
@@ -1043,8 +1049,10 @@ export class LLVMIRGenerator {
     //   decl.value.value,
     // );
     const type = this.instance.lookupSymbol(decl.id.value)!.llvmType;
-    const variable = entry.allocaInst(type);
     const value = this.generateNode(decl.value, main);
+    const variable = decl.type.isArray
+      ? entry.allocaArrayInst(type, 100)
+      : entry.allocaInst(type);
 
     if (this.debug) {
       entry.add(
@@ -1052,10 +1060,9 @@ export class LLVMIRGenerator {
       );
     }
 
+    // TODO: Improve this
     if (value.type == "i8" || value.type == "i8*") {
-      if (decl.value.kind == "CallExpr") {
-        entry.storeInst(value, variable);
-      } else {
+      if (decl.value.kind == "StringLiteral") {
         entry.storeInst(
           entry.getElementPtr(
             `[${decl.value.value.length + 1} x i8]`,
@@ -1063,6 +1070,8 @@ export class LLVMIRGenerator {
           ),
           variable,
         );
+      } else {
+        entry.storeInst(value, variable);
       }
     } else {
       entry.storeInst(
@@ -1072,7 +1081,6 @@ export class LLVMIRGenerator {
     }
 
     this.variables.set(decl.id.value, variable);
-    this.variables.get(decl.id.value);
     return variable;
   }
 

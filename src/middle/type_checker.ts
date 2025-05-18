@@ -7,8 +7,13 @@
  * See the LICENSE file in the project root for full license information.
  */
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
-import { Loc } from "../frontend/lexer/token.ts";
-import { Expr, LLVMType } from "../frontend/parser/ast.ts";
+import { Loc, NativeValue } from "../frontend/lexer/token.ts";
+import {
+  createTypeInfo,
+  Expr,
+  LLVMType,
+  TypeInfo,
+} from "../frontend/parser/ast.ts";
 import { TypesNative } from "../frontend/values.ts";
 
 export class TypeChecker {
@@ -43,12 +48,13 @@ export class TypeChecker {
     this.typeMap.set("bool", LLVMType.I1);
     this.typeMap.set("binary", LLVMType.I32);
     this.typeMap.set("null", LLVMType.PTR);
+    this.typeMap.set("ptr", LLVMType.PTR);
     this.typeMap.set("id", LLVMType.PTR);
     this.typeMap.set("void", LLVMType.VOID);
     this.typeMap.set("i8*", LLVMType.STRING);
     // C | const char *
-    this.typeMap.set("const char *", LLVMType.STRING);
-    this.typeMap.set("char *", LLVMType.STRING);
+    this.typeMap.set("const char", LLVMType.STRING);
+    this.typeMap.set("char", LLVMType.STRING);
   }
 
   public isValidType(type: string | LLVMType | TypesNative): boolean {
@@ -56,11 +62,10 @@ export class TypeChecker {
   }
 
   public mapToLLVMType(
-    sourceType: TypesNative | TypesNative[] | string,
+    sourceType: TypesNative | string,
   ): LLVMType {
     const llvmType = this.typeMap.get(sourceType as string);
     if (!llvmType) {
-      // return LLVMType.DOUBLE;
       throw new Error(`Unsupported type mapping for ${sourceType}`);
     }
     return llvmType;
@@ -116,14 +121,14 @@ export class TypeChecker {
   private promoteTypes(
     leftType: TypesNative | string,
     rightType: TypesNative | string,
-  ): TypesNative {
+  ): TypeInfo {
     const leftRank = this.typeHierarchy[String(leftType)] || 0;
     const rightRank = this.typeHierarchy[String(rightType)] || 0;
 
     if (leftRank >= rightRank) {
-      return leftType as TypesNative;
+      return createTypeInfo(leftType as TypesNative);
     }
-    return rightType as TypesNative;
+    return createTypeInfo(rightType as TypesNative);
   }
 
   public areTypesCompatible(
@@ -148,7 +153,7 @@ export class TypeChecker {
       "binary": ["int", "i32", "i64", "long"],
       "i64": ["float", "double"],
       "long": ["float", "double"],
-      "string": ["const char *", "char *"],
+      "string": ["const char", "char"],
       // "bool": ["int", "i32", "long", "float", "double", "string", "i64"],
     };
 
@@ -162,9 +167,9 @@ export class TypeChecker {
     left: Expr,
     right: Expr,
     operator: string,
-  ): TypesNative | TypesNative[] {
-    const leftType: TypesNative | TypesNative[] | string = left.type;
-    const rightType: TypesNative | TypesNative[] | string = right.type;
+  ): TypeInfo {
+    const leftType: TypesNative = left.type.baseType;
+    const rightType: TypesNative = right.type.baseType;
 
     // Check compatibility between types
     if (
@@ -182,7 +187,7 @@ export class TypeChecker {
     switch (operator) {
       case "+":
         if (leftType === "string" || rightType === "string") {
-          return "string";
+          return createTypeInfo("string");
         }
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
           // Return the promoted type based on hierarchy
@@ -263,7 +268,7 @@ export class TypeChecker {
       case "==":
       case "!=":
         if (this.areTypesCompatible(leftType, rightType)) {
-          return "bool";
+          return createTypeInfo("bool");
         }
         this.reporter!.addError(
           this.makeLoc(left.loc, right.loc),
@@ -278,10 +283,10 @@ export class TypeChecker {
       case ">":
       case ">=":
         if (this.isNumericType(leftType) && this.isNumericType(rightType)) {
-          return "bool";
+          return createTypeInfo("bool");
         }
         if (leftType === "string" && rightType === "string") {
-          return "bool";
+          return createTypeInfo("bool");
         }
         this.reporter!.addError(
           this.makeLoc(left.loc, right.loc),
@@ -294,7 +299,7 @@ export class TypeChecker {
       case "&&":
       case "||":
         if (leftType === "bool" && rightType === "bool") {
-          return "bool";
+          return createTypeInfo("bool");
         }
         this.reporter!.addError(
           this.makeLoc(left.loc, right.loc),
@@ -323,7 +328,7 @@ export class TypeChecker {
   }
 
   public formatLiteralForType(
-    value: any,
+    value: NativeValue,
     targetType: string,
   ): string | number {
     if (!Number.isNaN(value)) {
@@ -332,7 +337,7 @@ export class TypeChecker {
           ? `${value}.0`
           : `${value}`;
       }
-      return `${Math.floor(value)}`;
+      return `${Math.floor(value as number)}`;
     }
 
     if (typeof value === "string") {
@@ -340,6 +345,10 @@ export class TypeChecker {
     }
 
     return `${value}`;
+  }
+
+  public isPointerType(type: TypeInfo): boolean {
+    return type.isPointer == true;
   }
 }
 

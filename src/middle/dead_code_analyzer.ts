@@ -8,6 +8,7 @@
  */
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import {
+  createTypeInfo,
   Expr,
   FunctionDeclaration,
   Program,
@@ -26,7 +27,7 @@ export class DeadCodeAnalyzer {
     const new_ast = {
       kind: "Program",
       value: "null",
-      type: "null",
+      type: createTypeInfo("null"),
       body: [],
       loc: ast.loc,
     } as Program;

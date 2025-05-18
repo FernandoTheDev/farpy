@@ -16,6 +16,7 @@ import {
   BinaryExpr,
   BinaryLiteral,
   CallExpr,
+  createTypeInfo,
   DecrementExpr,
   ElifStatement,
   ElseStatement,
@@ -42,7 +43,7 @@ export class Optimizer {
     const new_ast = {
       kind: "Program",
       value: "null",
-      type: "null",
+      type: createTypeInfo("null"),
       body: [],
       loc: ast.loc,
     } as Program;
@@ -84,7 +85,7 @@ export class Optimizer {
       case "IncrementExpr":
       case "DecrementExpr":
       case "UnaryExpr":
-        return this.optimizeUnaryExpr(expr as any);
+        return this.optimizeUnaryExpr(expr as UnaryExpr);
       case "ReturnStatement":
         return this.optimizeReturnStatement(expr as ReturnStatement);
       case "ForRangeStatement":
@@ -187,7 +188,7 @@ export class Optimizer {
     }
 
     if (node.secondary !== null) {
-      // @ts-ignore
+      // @ts-ignore: Don't have error
       node.secondary = this.optimize(node.secondary);
     }
 

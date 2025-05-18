@@ -26,7 +26,7 @@ const ARG_CONFIG = {
   default: { "ast-json-save": "ast.json", "output": "a.out" },
 };
 
-const VERSION = "0.0.2";
+const VERSION = "0.0.3";
 
 const TARGET_HELP_MESSAGE = `Farpy Compiler - Target Architecture Help
 

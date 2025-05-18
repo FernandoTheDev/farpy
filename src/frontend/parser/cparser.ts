@@ -6,10 +6,17 @@
  * This software is licensed under the MIT License.
  * See the LICENSE file in the project root for full license information.
  */
-import { LLVMType } from "./ast.ts";
+import { backTrace } from "jsr:@std/internal@^1.0.6/diff";
+import {
+  createPointerType,
+  createTypeInfo,
+  LLVMType,
+  TypeInfo,
+} from "./ast.ts";
+import { TypesNative } from "../values.ts";
 
 export interface FunctionArg {
-  type: string;
+  type: TypeInfo;
   name: string;
   llvmType?: LLVMType;
 }
@@ -21,7 +28,7 @@ export interface Define {
 
 export interface Function {
   name: string;
-  returnType: string;
+  returnType: TypeInfo;
   args: FunctionArg[];
   signature: string;
 }
@@ -84,9 +91,26 @@ export class CParser {
     return defines;
   }
 
+  private clearType(type: string): { t: string; c: number } {
+    //
+    let newType = "";
+    let count = 0;
+
+    for (let i = 0; i < type.length; i++) {
+      if (type[i] == "*") {
+        count++;
+      } else {
+        newType += type[i];
+      }
+    }
+
+    return { t: newType, c: count };
+  }
+
   private parseArgs(argsStr: string): FunctionArg[] {
     if (!argsStr.trim()) return [];
 
+    // @ts-ignore: No error
     return argsStr.split(",").map((arg) => {
       const trimmed = arg.trim();
       if (trimmed === "void") return { type: "void", name: "" };
@@ -96,7 +120,18 @@ export class CParser {
 
       const asterisks = (name.match(/^\*+/) || [""])[0];
       const cleanName = name.replace(/^\*+/, "");
-      const type = parts.join(" ") + (asterisks ? " " + asterisks : "");
+      const preType = parts.join(" ") + (asterisks ? " " + asterisks : "");
+      const cleanType = preType.replaceAll("*", "");
+
+      const cls = this.clearType(preType);
+      let type = createTypeInfo(cleanType as TypesNative);
+
+      if (cls.c > 0) {
+        type = createPointerType(
+          createTypeInfo(cleanType.trimEnd() as TypesNative),
+          cls.c,
+        );
+      }
 
       return { type, name: cleanName };
     });
@@ -109,14 +144,30 @@ export class CParser {
 
     let match;
     while ((match = funcRegex.exec(this.sourceWithoutComments)) !== null) {
-      const returnType = match[1].trim();
+      let returnType: string | TypeInfo = match[1].trim();
       const name = match[2].trim();
       const argsStr = match[3];
       const args = this.parseArgs(argsStr);
 
       if (match[0].trim().endsWith(";")) continue;
       const signature = `${returnType} ${name}(${argsStr})`;
-      functions.push({ name, returnType, args, signature });
+
+      if (returnType.includes("*")) {
+        const cls = this.clearType(returnType);
+        returnType = createPointerType(
+          createTypeInfo(returnType as TypesNative),
+          cls.c,
+        );
+      } else {
+        returnType = createTypeInfo(returnType as TypesNative);
+      }
+
+      functions.push({
+        name: name,
+        returnType: returnType as TypeInfo,
+        args: args,
+        signature: signature,
+      });
     }
 
     return functions;

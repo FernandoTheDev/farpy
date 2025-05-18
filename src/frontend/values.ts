@@ -13,10 +13,6 @@ import { Expr as _Expr } from "./parser/ast.ts";
 //   typeParams: TypesNative[];
 // }
 
-export interface IParsedTypes {
-  types: TypesNative[];
-}
-
 export type TypesNative =
   | "string"
   | "id"
@@ -26,7 +22,8 @@ export type TypesNative =
   | "float"
   | "double"
   | "binary"
-  | "void";
+  | "void"
+  | "char *";
 // GenericType;
 
 export const TypesNativeArray: string[] = [

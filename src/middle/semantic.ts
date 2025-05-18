@@ -10,8 +10,11 @@ import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
 import { Lexer } from "../frontend/lexer/lexer.ts";
 import { Loc, Token } from "../frontend/lexer/token.ts";
 import {
+  ArrayLiteral,
   AssignmentDeclaration,
   CallExpr,
+  createArrayType,
+  createTypeInfo,
   ElifStatement,
   ElseStatement,
   ExternStatement,
@@ -22,6 +25,8 @@ import {
   ImportStatement,
   LLVMType,
   ReturnStatement,
+  TypeInfo,
+  typeInfoToString,
   UnaryExpr,
   WhileStatement,
 } from "../frontend/parser/ast.ts";
@@ -52,7 +57,7 @@ export interface TypeMapping {
 
 export interface SymbolInfo {
   id: string;
-  sourceType: TypesNative | TypesNative[];
+  sourceType: TypeInfo;
   llvmType: LLVMType;
   mutable: boolean;
   initialized: boolean;
@@ -95,9 +100,8 @@ export class Semantic {
       try {
         analyzedNodes.push(this.analyzeNode(node));
       } catch (_error: any) {
+        console.log(_error);
         // Ignore
-        console.log("Error in semantic analysis:", _error.message);
-        break;
       }
     }
 
@@ -188,6 +192,9 @@ export class Semantic {
       case "UnaryExpr":
         analyzedNode = this.analyzeUnaryExpr(node as UnaryExpr);
         break;
+      case "ArrayLiteral":
+        analyzedNode = this.analyzeArrayLiteral(node as ArrayLiteral);
+        break;
       case "StringLiteral":
       case "IntLiteral":
       case "FloatLiteral":
@@ -195,7 +202,7 @@ export class Semantic {
       case "NullLiteral":
         analyzedNode = {
           ...node,
-          llvmType: this.typeChecker.mapToLLVMType(node.type),
+          llvmType: this.typeChecker.mapToLLVMType(node.type.baseType),
         };
         break;
       default: {
@@ -205,18 +212,204 @@ export class Semantic {
     }
 
     if (!analyzedNode.llvmType) {
-      (analyzedNode as any).llvmType = this.typeChecker.mapToLLVMType(
-        analyzedNode.type,
-      );
+      analyzedNode.llvmType = this
+        .typeChecker.mapToLLVMType(
+          analyzedNode.type.baseType == undefined
+            ? analyzedNode.type as unknown as TypesNative
+            : analyzedNode.type.baseType,
+        );
     }
 
     return analyzedNode;
   }
 
+  /**
+   * Analisa um literal de array, verificando seus elementos, dimensões e tipo
+   */
+  private analyzeArrayLiteral(node: ArrayLiteral): ArrayLiteral {
+    // Analisar cada elemento do array
+    const analyzedElements: Expr[] = [];
+    let commonElementType: TypeInfo | undefined = undefined;
+
+    for (let i = 0; i < node.value.length; i++) {
+      const analyzedElement = this.analyzeNode(node.value[i]) as Expr;
+      analyzedElements.push(analyzedElement);
+
+      // Determinar o tipo comum do array
+      if (i === 0) {
+        commonElementType = analyzedElement.type;
+      } else if (commonElementType && analyzedElement.type) {
+        // Verificar se todos os elementos têm o mesmo tipo
+        if (
+          !this.typeChecker.areTypesCompatible(
+            analyzedElement.type.baseType,
+            commonElementType.baseType,
+          )
+        ) {
+          this.reporter.addError(
+            analyzedElement.loc,
+            `Array elements must have compatible types. Found '${
+              typeInfoToString(analyzedElement.type)
+            }' but expected '${typeInfoToString(commonElementType)}'`,
+          );
+          throw new Error(
+            `Array elements have incompatible types at ${analyzedElement.loc.line}:${analyzedElement.loc.start}`,
+          );
+        }
+      }
+    }
+
+    // Se o array estiver vazio, usar null como tipo base
+    const baseType = commonElementType?.baseType ?? "null";
+
+    // Criar ou atualizar o tipo do array
+    const arrayType = createArrayType(
+      baseType as TypesNative,
+      node.type?.dimensions ?? 1,
+    );
+
+    // Verificar arrays multidimensionais (arrays de arrays)
+    if (node.value.length > 0 && node.value[0].kind === "ArrayLiteral") {
+      // É um array multidimensional
+      const nestedArray = node.value[0] as ArrayLiteral;
+      arrayType.dimensions = (nestedArray.type?.dimensions ?? 0) + 1;
+
+      // Verificar se todos os subarrays têm a mesma dimensão
+      for (let i = 1; i < node.value.length; i++) {
+        if (node.value[i].kind === "ArrayLiteral") {
+          const subArray = node.value[i] as ArrayLiteral;
+          if (
+            (subArray.type?.dimensions ?? 0) !==
+              (nestedArray.type?.dimensions ?? 0)
+          ) {
+            this.reporter.addError(
+              subArray.loc,
+              `Inconsistent array dimensions in multidimensional array`,
+            );
+            throw new Error(
+              `Inconsistent array dimensions in multidimensional array at ${subArray.loc.line}:${subArray.loc.start}`,
+            );
+          }
+        } else {
+          this.reporter.addError(
+            node.value[i].loc,
+            `Expected array literal but found ${node.value[i].kind}`,
+          );
+          throw new Error(
+            `Expected array literal but found ${node.value[i].kind} at ${
+              node.value[i].loc.line
+            }:${node.value[i].loc.start}`,
+          );
+        }
+      }
+    }
+
+    return {
+      ...node,
+      value: analyzedElements,
+      type: arrayType,
+      elementType: commonElementType,
+      llvmType: this.typeChecker.mapToLLVMType(arrayType.baseType),
+    };
+  }
+
   private analyzeUnaryExpr(node: UnaryExpr): UnaryExpr {
-    node.operand = this.analyzeNode(node.operand);
+    node.operand = this.analyzeNode(node.operand) as Expr;
+
+    if (node.operator === "*") {
+      if (!this.typeChecker.isPointerType(node.operand.type)) {
+        this.reporter.addError(
+          node.loc,
+          `Cannot dereference non-pointer type '${
+            typeInfoToString(node.operand.type)
+          }'`,
+        );
+        throw new Error(
+          `Cannot dereference non-pointer type '${
+            typeInfoToString(node.operand.type)
+          }' at ${node.loc.line}:${node.loc.start}`,
+        );
+      }
+
+      let dereferenceCount = 1;
+      let currentExpr: Expr = node.operand;
+
+      while (
+        currentExpr.kind === "UnaryExpr" &&
+        (currentExpr as UnaryExpr).operator === "*"
+      ) {
+        dereferenceCount++;
+        currentExpr = (currentExpr as UnaryExpr).operand;
+      }
+
+      const pointerLevel = node.operand.type.pointerLevel || 0;
+
+      if (dereferenceCount > pointerLevel) {
+        this.reporter.addError(
+          node.loc,
+          `Cannot dereference pointer of level ${pointerLevel} with ${dereferenceCount} dereference operations`,
+        );
+        throw new Error(
+          `Cannot dereference pointer of level ${pointerLevel} with ${dereferenceCount} dereference operations at ${node.loc.line}:${node.loc.start}`,
+        );
+      }
+
+      const newType = { ...node.operand.type };
+      newType.pointerLevel = Math.max(0, pointerLevel);
+      newType.isPointer = newType.pointerLevel > 0;
+
+      node.llvmType = newType.pointerLevel === 0
+        ? this.typeChecker.mapToLLVMType(newType.baseType)
+        : LLVMType.PTR;
+      node.type = newType;
+    } else if (node.operator === "&") {
+      if (node.operand.kind !== "Identifier") {
+        this.reporter.addError(
+          node.loc,
+          `Cannot take address of non-variable expression`,
+        );
+        throw new Error(
+          `Cannot take address of non-variable expression at ${node.loc.line}:${node.loc.start}`,
+        );
+      }
+
+      const newType = { ...node.operand.type };
+      newType.pointerLevel = (newType.pointerLevel || 0) + 1;
+      newType.isPointer = true;
+      newType.baseType = "null";
+
+      node.type = newType;
+      node.llvmType = LLVMType.PTR;
+    }
+
     return node;
   }
+
+  // private analyzeUnaryExpr(node: UnaryExpr): UnaryExpr {
+  //   node.operand = this.analyzeNode(node.operand) as Expr;
+
+  //   if (node.operator === "*") {
+  //     if (!this.typeChecker.isPointerType(node.operand.type)) {
+  //       this.reporter.addError(
+  //         node.loc,
+  //         `Cannot dereference non-pointer type '${
+  //           typeInfoToString(node.operand.type)
+  //         }'`,
+  //       );
+  //       throw new Error(
+  //         `Cannot dereference non-pointer type '${
+  //           typeInfoToString(node.operand.type)
+  //         }' at ${node.loc.line}:${node.loc.start}`,
+  //       );
+  //     }
+
+  //     node.type = node.operand.type;
+  //     node.llvmType = this.typeChecker.mapToLLVMType(node.type.baseType);
+  //   }
+
+  //   console.log(this.scopeStack[0].get(node.operand.value));
+  //   return node;
+  // }
 
   private analyzeWhileStatement(node: WhileStatement): WhileStatement {
     node.condition = this.analyzeNode(node.condition);
@@ -241,7 +434,9 @@ export class Semantic {
       }
 
       for (const arg of func.args) {
-        const llvmType = this.typeChecker.mapToLLVMType(arg.type);
+        const llvmType = this.typeChecker.mapToLLVMType(
+          arg.type.baseType as TypesNative,
+        );
         arg.llvmType = llvmType;
       }
 
@@ -250,13 +445,14 @@ export class Semantic {
         params: func.args.map((arg) => ({
           name: arg.name,
           type: arg.type,
-          llvmType: this.typeChecker.mapToLLVMType(arg.type),
+          llvmType: this.typeChecker.mapToLLVMType(arg.type.baseType),
         })),
         returnType: func.returnType,
-        llvmType: this.typeChecker.mapToLLVMType(func.returnType),
+        llvmType: this.typeChecker.mapToLLVMType(func.returnType.baseType),
         isVariadic: false,
         loc: node.loc,
       };
+
       this.availableFunctions.set(funcName, funcInfo as Function);
     }
 
@@ -270,7 +466,7 @@ export class Semantic {
     if (node.id) {
       this.defineSymbol({
         id: node.id.value,
-        sourceType: "int",
+        sourceType: createTypeInfo("int"),
         llvmType: LLVMType.I32,
         mutable: true,
         initialized: false,
@@ -309,7 +505,7 @@ export class Semantic {
     }
 
     if (node.secondary !== null) {
-      // @ts-ignore
+      // @ts-ignore: Dont have error
       node.secondary = this.analyzeNode(node.secondary as Stmt);
     }
 
@@ -395,7 +591,7 @@ export class Semantic {
         );
       }
 
-      const llvmType = this.typeChecker.mapToLLVMType(arg.type);
+      const llvmType = this.typeChecker.mapToLLVMType(arg.type.baseType);
       arg.llvmType = llvmType;
 
       this.defineSymbol({
@@ -413,16 +609,16 @@ export class Semantic {
       });
     }
 
-    const returnType = node.type || "void";
+    const returnType = node.type || createTypeInfo("void");
 
-    const returnLLVMType = this.typeChecker.mapToLLVMType(returnType);
+    const returnLLVMType = this.typeChecker.mapToLLVMType(returnType.baseType);
 
     const funcInfo = {
       name: funcName,
       params: node.args.map((arg) => ({
         name: arg.id.value,
         type: arg.type,
-        llvmType: this.typeChecker.mapToLLVMType(arg.type),
+        llvmType: this.typeChecker.mapToLLVMType(arg.type.baseType),
       })),
       returnType: returnType,
       llvmType: returnLLVMType,
@@ -441,13 +637,16 @@ export class Semantic {
       if (analyzedStmt.kind === "ReturnStatement") {
         hasReturn = true;
 
-        const returnExpr = (analyzedStmt as any).value;
+        const returnExpr = (analyzedStmt as ReturnStatement).value;
         if (returnExpr) {
           const returnExprType = returnExpr.type;
 
           if (
-            !this.typeChecker.areTypesCompatible(returnExprType, returnType) &&
-            returnType !== "void"
+            !this.typeChecker.areTypesCompatible(
+              returnExprType,
+              returnType.baseType,
+            ) &&
+            returnType.baseType !== "void"
           ) {
             this.reporter.addError(
               node.loc,
@@ -461,7 +660,7 @@ export class Semantic {
       }
     }
 
-    if (returnType !== "void" && !hasReturn) {
+    if (returnType.baseType !== "void" && !hasReturn) {
       this.reporter.addError(
         node.loc,
         `Function '${funcName}' is declared to return '${returnType}' but has no return statement`,
@@ -543,7 +742,6 @@ export class Semantic {
 
     this.importedModules.add(moduleName);
 
-    // TODO: Use the file's directory and not the user's as it is now
     const filePath = node.loc.dir + moduleName;
     let file = "";
 
@@ -650,7 +848,7 @@ export class Semantic {
       );
     }
 
-    node.type = funcInfo.returnType as TypesNative;
+    node.type = funcInfo.returnType as TypeInfo;
     node.llvmType = funcInfo.llvmType as LLVMType;
 
     if (
@@ -671,15 +869,15 @@ export class Semantic {
 
       const paramType = typeof param === "string"
         ? param as TypesNative
-        : param.type as TypesNative;
+        : param.type.baseType as TypesNative;
 
-      if (argType !== "string" && paramType === "string") {
-        node.arguments[i].type = "string";
+      if (argType.baseType !== "string" && paramType === "string") {
+        node.arguments[i].type.baseType = "string";
         node.arguments[i].value = String(node.arguments[i].value);
         continue;
       }
 
-      if (!this.typeChecker.areTypesCompatible(argType, paramType)) {
+      if (!this.typeChecker.areTypesCompatible(argType.baseType, paramType)) {
         this.reporter.addError(
           node.arguments[i].loc,
           `Argument ${
@@ -689,13 +887,13 @@ export class Semantic {
         throw new Error(
           `Argument ${
             i + 1
-          } of function '${funcName}' expects type '${paramType}', but got '${argType}'`,
+          } of function '${funcName}' expects type '${paramType}', but got '${argType.baseType}'`,
         );
       }
 
       if (
-        this.typeChecker.areTypesCompatible(argType, paramType) &&
-        argType !== paramType
+        this.typeChecker.areTypesCompatible(argType.baseType, paramType) &&
+        argType.baseType !== paramType
       ) {
         if (!node.arguments[i].kind.includes("Literal")) {
           // this.reporter.addError(
@@ -713,7 +911,7 @@ export class Semantic {
         }
 
         node.arguments[i].llvmType = this.typeChecker.mapToLLVMType(paramType);
-        node.arguments[i].type = paramType;
+        node.arguments[i].type.baseType = paramType;
       }
     }
 
@@ -729,7 +927,7 @@ export class Semantic {
       right,
       expr.operator,
     );
-    const llvmResultType = this.typeChecker.mapToLLVMType(resultType);
+    const llvmResultType = this.typeChecker.mapToLLVMType(resultType.baseType);
 
     return {
       ...expr,
@@ -769,7 +967,6 @@ export class Semantic {
     const analyzedValue = this.analyzeNode(decl.value) as Expr;
 
     if (this.currentScope().has(decl.id.value)) {
-      console.log(decl);
       this.reporter.addError(
         decl.id.loc,
         `Variable '${decl.id.value}' is already defined in this scope`,
@@ -780,11 +977,54 @@ export class Semantic {
     }
 
     const actualType = analyzedValue.type;
-    const llvmType = this.typeChecker.mapToLLVMType(actualType);
+
+    // Check pointer type compatibility
+    if (
+      this.typeChecker.isPointerType(actualType) &&
+      !this.typeChecker.isPointerType(decl.type)
+    ) {
+      this.reporter.addError(
+        decl.loc,
+        `Cannot assign pointer type '${
+          typeInfoToString(actualType)
+        }' to non-pointer type '${typeInfoToString(decl.type)}'`,
+      );
+      throw new Error(
+        `Cannot assign pointer type '${
+          typeInfoToString(actualType)
+        }' to non-pointer type '${typeInfoToString(decl.type)}'`,
+      );
+    }
+
+    // Check pointer depth compatibility
+    if (
+      this.typeChecker.isPointerType(actualType) &&
+      this.typeChecker.isPointerType(decl.type)
+    ) {
+      const actualDepth = actualType.pointerLevel;
+      const declDepth = decl.type.pointerLevel;
+
+      if (actualDepth !== declDepth) {
+        this.reporter.addError(
+          decl.loc,
+          `Pointer type mismatch: '${
+            typeInfoToString(actualType)
+          }' cannot be assigned to '${typeInfoToString(decl.type)}'`,
+        );
+        throw new Error(
+          `Pointer type mismatch: '${
+            typeInfoToString(actualType)
+          }' cannot be assigned to '${typeInfoToString(decl.type)}'`,
+        );
+      }
+    }
+
+    const llvmType = this.typeChecker.mapToLLVMType(actualType.baseType);
+    decl.type.baseType = actualType.baseType;
 
     this.defineSymbol({
       id: decl.id.value,
-      sourceType: actualType,
+      sourceType: decl.type,
       llvmType: llvmType,
       mutable: decl.mutable,
       initialized: true,
@@ -812,7 +1052,10 @@ export class Semantic {
       );
     }
 
-    if (analyzedValue.type !== "int" && analyzedValue.type !== "float") {
+    if (
+      analyzedValue.type.baseType !== "int" &&
+      analyzedValue.type.baseType !== "float"
+    ) {
       this.reporter.addError(
         expr.loc,
         `Cannot increment variable of type '${analyzedValue.type}'`,
@@ -841,7 +1084,7 @@ export class Semantic {
       ...expr,
       value: analyzedValue,
       type: analyzedValue.type,
-      llvmType: (analyzedValue as any).llvmType,
+      llvmType: (analyzedValue as Expr).llvmType,
     };
   }
 
@@ -858,7 +1101,10 @@ export class Semantic {
       );
     }
 
-    if (analyzedValue.type !== "int" && analyzedValue.type !== "float") {
+    if (
+      analyzedValue.type.baseType !== "int" &&
+      analyzedValue.type.baseType !== "float"
+    ) {
       this.reporter.addError(
         expr.loc,
         `Cannot decrement variable of type '${analyzedValue.type}'`,
@@ -887,7 +1133,7 @@ export class Semantic {
       ...expr,
       value: analyzedValue,
       type: analyzedValue.type,
-      llvmType: (analyzedValue as any).llvmType,
+      llvmType: (analyzedValue as Identifier).llvmType,
     };
   }
 

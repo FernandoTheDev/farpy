@@ -1,4 +1,4 @@
-void hello(const char *n)
+void hello(char *n)
 {
     printf("Hello %s\n", n);
 }

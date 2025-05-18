@@ -232,6 +232,9 @@ export class FarpyCompilerMain {
 
       const semantic = Semantic.getInstance(this.reporter);
       ast = semantic.semantic(ast);
+
+      if (!this.checkErrorsAndWarnings()) return;
+
       semantic.resetInstance(); // Reset
 
       if (this.shouldOptimize()) {
@@ -265,7 +268,7 @@ export class FarpyCompilerMain {
     } catch (error: any) {
       console.error("Compilation failed:", error);
       if (this.args["debug"]) {
-        console.error(error.stack);
+        console.error((error as any).stack);
       }
       Deno.exit(1);
     }
