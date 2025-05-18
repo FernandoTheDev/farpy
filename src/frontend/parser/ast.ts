@@ -125,7 +125,8 @@ export type NodeType =
   | "WhileStatement"
   | "UnaryExpr"
   | "AddressOfExpr"
-  | "DereferenceExpr";
+  | "DereferenceExpr"
+  | "CastExpr";
 
 export interface Stmt {
   kind: NodeType;
@@ -492,5 +493,21 @@ export function AST_ADDRESS_OF(operand: Expr, loc: Loc): AddressOfExpr {
     type: resultType,
     value: null,
     loc,
+  };
+}
+
+export interface CastExpr extends Expr {
+  kind: "CastExpr";
+  type: TypeInfo;
+  expr: Expr;
+}
+
+export function AST_CAST(type: TypeInfo, expr: Expr, loc: Loc): CastExpr {
+  return {
+    kind: "CastExpr",
+    type,
+    expr,
+    loc,
+    value: null,
   };
 }

@@ -47,7 +47,7 @@ export class LLVMBasicBlock {
 
     try {
       // Check if both types are pointers
-      const isSourcePointer = sourceType.includes("*");
+      const isSourcePointer = sourceType.includes("*") || sourceType == "ptr";
       const isTargetPointer = targetType.includes("*");
       const isSourceInt = this.isInteger(sourceType);
       const isTargetInt = this.isInteger(targetType);
@@ -60,9 +60,6 @@ export class LLVMBasicBlock {
         this.add(
           `${tmp} = bitcast ${sourceType} ${value.value} to ${targetType}`,
         );
-        console.log(
-          `Converting pointer type ${sourceType} to ${targetType} using bitcast`,
-        );
         return { value: tmp, type: targetType };
       }
 
@@ -72,9 +69,6 @@ export class LLVMBasicBlock {
         this.add(
           `${tmp} = inttoptr ${sourceType} ${value.value} to ${targetType}`,
         );
-        console.log(
-          `Converting integer type ${sourceType} to pointer type ${targetType}`,
-        );
         return { value: tmp, type: targetType };
       }
 
@@ -83,9 +77,6 @@ export class LLVMBasicBlock {
         const tmp = this.nextTemp();
         this.add(
           `${tmp} = ptrtoint ${sourceType} ${value.value} to ${targetType}`,
-        );
-        console.log(
-          `Converting pointer type ${sourceType} to integer type ${targetType}`,
         );
         return { value: tmp, type: targetType };
       }
@@ -99,9 +90,6 @@ export class LLVMBasicBlock {
         // Then convert integer to float
         const floatTmp = this.nextTemp();
         this.add(`${floatTmp} = sitofp i64 ${intTmp} to ${targetType}`);
-        console.log(
-          `Converting pointer type ${sourceType} to float type ${targetType} via i64`,
-        );
         return { value: floatTmp, type: targetType };
       }
 
@@ -114,9 +102,6 @@ export class LLVMBasicBlock {
         // Then convert integer to pointer
         const ptrTmp = this.nextTemp();
         this.add(`${ptrTmp} = inttoptr i64 ${intTmp} to ${targetType}`);
-        console.log(
-          `Converting float type ${sourceType} to pointer type ${targetType} via i64`,
-        );
         return { value: ptrTmp, type: targetType };
       }
 
@@ -163,10 +148,6 @@ export class LLVMBasicBlock {
         this.add(
           `${tmp} = sitofp ${sourceType} ${value.value} to ${targetType}`,
         );
-        console.log(
-          `${tmp} = sitofp ${sourceType} ${value.value} to ${targetType}`,
-        );
-        console.log(`Converting type ${sourceType} to ${targetType}`);
         return { value: tmp, type: targetType };
       }
 
@@ -176,10 +157,6 @@ export class LLVMBasicBlock {
         this.add(
           `${tmp} = fptosi ${sourceType} ${value.value} to ${targetType}`,
         );
-        console.log(
-          `${tmp} = fptosi ${sourceType} ${value.value} to ${targetType}`,
-        );
-        console.log(`Converting type ${sourceType} to ${targetType}`);
         return { value: tmp, type: targetType };
       }
 
@@ -191,7 +168,10 @@ export class LLVMBasicBlock {
       }
 
       // If no conversion path was found
-      console.log("ERROR");
+      console.log(
+        "ERROR",
+        `Unsupported type conversion from ${sourceType} to ${targetType}`,
+      );
       throw new Error(
         `Unsupported type conversion from ${sourceType} to ${targetType}`,
       );
@@ -392,6 +372,7 @@ export class LLVMBasicBlock {
     const base = ptr.type != "ptr" ? ptr.type.slice(0, -1) : ptr.type;
     const ptrTypeInInst = ptr.type == "ptr" ? "ptr" : `${base}*`;
     const tmp = this.nextTemp();
+
     this.add(
       `${tmp} = load ${base}, ${ptrTypeInInst} ${ptr.value}, align ${
         this.getAlign(base)

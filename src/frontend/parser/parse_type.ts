@@ -91,15 +91,22 @@ export class ParseType {
 
     switch (value) {
       case "int":
+      case "i32":
         return "int";
+      case "i64":
+        return "i64";
+      case "i128":
+      case "long":
+        return "i128";
       case "float":
-        return "float";
+      case "double":
+        return "double";
       case "string":
         return "string";
       case "bool":
         return "bool";
       default:
-        return "null";
+        throw new Error("Tipo desconhecido:" + value);
     }
   }
 

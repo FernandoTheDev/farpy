@@ -20,6 +20,7 @@ import {
   AST_UNARY,
   BinaryExpr,
   CallExpr,
+  CastExpr,
   createTypeInfo,
   ElifStatement,
   ElseStatement,
@@ -182,14 +183,10 @@ export class Parser {
 
         return AST_IDENTIFIER(name, token.loc);
       }
-      case TokenType.LPAREN: {
-        const expr = this.parseExpression(Precedence.LOWEST);
-        this.consume(TokenType.RPAREN, "Expect ')' after expression.");
-        return expr;
-      }
+      case TokenType.LPAREN:
+        return this.parseCastExpression();
       case TokenType.ASTERISK:
       case TokenType.EXPONENTIATION: {
-        // Operador de desreferenciamento (pode ser múltiplo como ***)
         let count = 1;
 
         if (token.kind == TokenType.EXPONENTIATION) {
@@ -208,7 +205,6 @@ export class Parser {
           this.advance();
         }
 
-        // Cria um operador desref para cada nível
         let operand = this.parseExpression(Precedence.PREFIX);
         for (let i = 0; i < count; i++) {
           operand = AST_UNARY(
@@ -219,7 +215,6 @@ export class Parser {
         }
         return operand;
       }
-
       case TokenType.AMPERSAND: {
         const operand = this.parseExpression(Precedence.PREFIX);
         return AST_UNARY("&", operand, this.makeLoc(token.loc, operand.loc));
@@ -241,6 +236,135 @@ export class Parser {
         );
         throw new Error(`No prefix parse function for ${token.value}`);
     }
+  }
+
+  private parseCastExpression(): Expr {
+    const startLoc = this.previous().loc;
+    const savedPos = this.pos;
+
+    const typeTokens: Token[] = [];
+
+    let nestingLevel = 0;
+    let foundClosingParen = false;
+    let hasOperators = false;
+    let hasIdentifier = false;
+
+    while (!this.isAtEnd()) {
+      if (this.check(TokenType.LPAREN)) {
+        nestingLevel++;
+      } else if (this.check(TokenType.RPAREN)) {
+        if (nestingLevel === 0) {
+          foundClosingParen = true;
+          break;
+        }
+        nestingLevel--;
+      } else if (
+        this.check(TokenType.PLUS) ||
+        this.check(TokenType.MINUS) ||
+        this.check(TokenType.SLASH) ||
+        this.check(TokenType.PERCENT) ||
+        this.check(TokenType.REMAINDER) ||
+        this.check(TokenType.EXPONENTIATION)
+      ) {
+        hasOperators = true;
+      } else if (this.check(TokenType.IDENTIFIER)) {
+        hasIdentifier = true;
+      }
+
+      typeTokens.push(this.advance());
+    }
+
+    if (!foundClosingParen) {
+      this.pos = savedPos;
+      const expr = this.parseExpression(Precedence.LOWEST);
+      this.consume(TokenType.RPAREN, "Expect ')' after expression.");
+      return expr;
+    }
+
+    this.consume(TokenType.RPAREN, "Expect ')' after type cast.");
+
+    // Heuristics to distinguish between cast and mathematical expression
+
+    if (typeTokens.length > 3) {
+      hasOperators = true;
+    }
+
+    if (hasOperators) {
+      this.pos = savedPos;
+      const expr = this.parseExpression(Precedence.LOWEST);
+      this.consume(TokenType.RPAREN, "Expect ')' after expression.");
+      return expr;
+    }
+
+    const nextTokenIsValidCastTarget =
+      this.peek().kind === TokenType.IDENTIFIER ||
+      this.peek().kind === TokenType.INT ||
+      this.peek().kind === TokenType.FLOAT ||
+      this.peek().kind === TokenType.STRING ||
+      this.peek().kind === TokenType.AMPERSAND ||
+      this.peek().kind === TokenType.ASTERISK ||
+      this.peek().kind === TokenType.LPAREN;
+
+    if (!nextTokenIsValidCastTarget) {
+      this.pos = savedPos;
+      const expr = this.parseExpression(Precedence.LOWEST);
+      this.consume(TokenType.RPAREN, "Expect ')' after expression.");
+      return expr;
+    }
+
+    if (!this.isValidTypeSequence(typeTokens)) {
+      this.pos = savedPos;
+      const expr = this.parseExpression(Precedence.LOWEST);
+      this.consume(TokenType.RPAREN, "Expect ')' after expression.");
+      return expr;
+    }
+
+    try {
+      const castType = new ParseType(typeTokens).parse();
+      const expr = this.parseExpression(Precedence.PREFIX);
+
+      return {
+        kind: "CastExpr",
+        type: castType,
+        expr: expr,
+        loc: this.makeLoc(startLoc, expr.loc),
+        value: null,
+      } as CastExpr;
+    } catch (_error: unknown) {
+      this.pos = savedPos;
+      const expr = this.parseExpression(Precedence.LOWEST);
+      this.consume(TokenType.RPAREN, "Expect ')' after expression.");
+      return expr;
+    }
+  }
+
+  private isValidTypeSequence(tokens: Token[]): boolean {
+    if (tokens.length === 0) return false;
+    let pos = 0;
+
+    const parseType = (): boolean => {
+      while (pos < tokens.length && tokens[pos].kind === TokenType.ASTERISK) {
+        pos++;
+      }
+
+      if (
+        pos < tokens.length - 1 &&
+        tokens[pos].kind === TokenType.LBRACKET &&
+        tokens[pos + 1].kind === TokenType.RBRACKET
+      ) {
+        pos += 2;
+        return parseType();
+      }
+
+      if (pos < tokens.length && tokens[pos].kind === TokenType.IDENTIFIER) {
+        pos++;
+        return pos === tokens.length;
+      }
+
+      return false;
+    };
+
+    return parseType();
   }
 
   private parseArrayLiteral(): ArrayLiteral {
