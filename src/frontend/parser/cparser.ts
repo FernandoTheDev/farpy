@@ -126,7 +126,12 @@ export class CParser {
       const cls = this.clearType(preType);
       let type = createTypeInfo(cleanType as TypesNative);
 
-      if (cls.c > 0) type = createPointerType(createTypeInfo("null"), cls.c);
+      if (cls.c > 0) {
+        type = createPointerType(
+          createTypeInfo(cleanType.trimEnd() as TypesNative),
+          cls.c,
+        );
+      }
 
       return { type, name: cleanName };
     });
@@ -148,9 +153,10 @@ export class CParser {
       const signature = `${returnType} ${name}(${argsStr})`;
 
       if (returnType.includes("*")) {
+        const cls = this.clearType(returnType);
         returnType = createPointerType(
-          createTypeInfo("null"),
-          this.clearType(returnType).c,
+          createTypeInfo(returnType as TypesNative),
+          cls.c,
         );
       } else {
         returnType = createTypeInfo(returnType as TypesNative);

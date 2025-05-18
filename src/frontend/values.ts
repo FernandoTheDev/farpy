@@ -22,7 +22,8 @@ export type TypesNative =
   | "float"
   | "double"
   | "binary"
-  | "void";
+  | "void"
+  | "char *";
 // GenericType;
 
 export const TypesNativeArray: string[] = [

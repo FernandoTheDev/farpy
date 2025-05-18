@@ -53,8 +53,8 @@ export class TypeChecker {
     this.typeMap.set("void", LLVMType.VOID);
     this.typeMap.set("i8*", LLVMType.STRING);
     // C | const char *
-    this.typeMap.set("const char *", LLVMType.STRING);
-    this.typeMap.set("char *", LLVMType.STRING);
+    this.typeMap.set("const char", LLVMType.STRING);
+    this.typeMap.set("char", LLVMType.STRING);
   }
 
   public isValidType(type: string | LLVMType | TypesNative): boolean {
@@ -153,7 +153,7 @@ export class TypeChecker {
       "binary": ["int", "i32", "i64", "long"],
       "i64": ["float", "double"],
       "long": ["float", "double"],
-      "string": ["const char *", "char *"],
+      "string": ["const char", "char"],
       // "bool": ["int", "i32", "long", "float", "double", "string", "i64"],
     };
 

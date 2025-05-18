@@ -887,7 +887,7 @@ export class Semantic {
         throw new Error(
           `Argument ${
             i + 1
-          } of function '${funcName}' expects type '${paramType}', but got '${argType}'`,
+          } of function '${funcName}' expects type '${paramType}', but got '${argType.baseType}'`,
         );
       }
 
