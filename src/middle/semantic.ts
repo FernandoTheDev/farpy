@@ -13,6 +13,7 @@ import {
   ArrayLiteral,
   AssignmentDeclaration,
   CallExpr,
+  CastExpr,
   createArrayType,
   createTypeInfo,
   ElifStatement,
@@ -195,6 +196,9 @@ export class Semantic {
       case "ArrayLiteral":
         analyzedNode = this.analyzeArrayLiteral(node as ArrayLiteral);
         break;
+      case "CastExpr":
+        analyzedNode = this.analyzeCastExpr(node as CastExpr);
+        break;
       case "StringLiteral":
       case "IntLiteral":
       case "FloatLiteral":
@@ -223,11 +227,33 @@ export class Semantic {
     return analyzedNode;
   }
 
-  /**
-   * Analisa um literal de array, verificando seus elementos, dimensões e tipo
-   */
+  private analyzeCastExpr(node: CastExpr): CastExpr {
+    node.expr = this.analyzeNode(node.expr);
+
+    if (
+      !this.typeChecker.areTypesCompatible(
+        node.expr.type.baseType,
+        node.type.baseType,
+      )
+    ) {
+      this.reporter.addError(
+        node.loc,
+        `You are trying to convert tipps to incompatible types, ${node.expr.type.baseType} to ${node.type.baseType}.`,
+        [
+          this.reporter.makeSuggestion(
+            "Try converting to a compatible type first.",
+          ),
+        ],
+      );
+      throw new Error(
+        `You are trying to convert tipps to incompatible types.`,
+      );
+    }
+
+    return node;
+  }
+
   private analyzeArrayLiteral(node: ArrayLiteral): ArrayLiteral {
-    // Analisar cada elemento do array
     const analyzedElements: Expr[] = [];
     let commonElementType: TypeInfo | undefined = undefined;
 
@@ -235,11 +261,9 @@ export class Semantic {
       const analyzedElement = this.analyzeNode(node.value[i]) as Expr;
       analyzedElements.push(analyzedElement);
 
-      // Determinar o tipo comum do array
       if (i === 0) {
         commonElementType = analyzedElement.type;
       } else if (commonElementType && analyzedElement.type) {
-        // Verificar se todos os elementos têm o mesmo tipo
         if (
           !this.typeChecker.areTypesCompatible(
             analyzedElement.type.baseType,
@@ -259,22 +283,17 @@ export class Semantic {
       }
     }
 
-    // Se o array estiver vazio, usar null como tipo base
     const baseType = commonElementType?.baseType ?? "null";
 
-    // Criar ou atualizar o tipo do array
     const arrayType = createArrayType(
       baseType as TypesNative,
       node.type?.dimensions ?? 1,
     );
 
-    // Verificar arrays multidimensionais (arrays de arrays)
     if (node.value.length > 0 && node.value[0].kind === "ArrayLiteral") {
-      // É um array multidimensional
       const nestedArray = node.value[0] as ArrayLiteral;
       arrayType.dimensions = (nestedArray.type?.dimensions ?? 0) + 1;
 
-      // Verificar se todos os subarrays têm a mesma dimensão
       for (let i = 1; i < node.value.length; i++) {
         if (node.value[i].kind === "ArrayLiteral") {
           const subArray = node.value[i] as ArrayLiteral;

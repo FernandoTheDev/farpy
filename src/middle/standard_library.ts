@@ -7,7 +7,7 @@
  * See the LICENSE file in the project root for full license information.
  */
 import { DiagnosticReporter } from "../error/diagnosticReporter.ts";
-import { createTypeInfo } from "../frontend/parser/ast.ts";
+import { createPointerType, createTypeInfo } from "../frontend/parser/ast.ts";
 import {
   StdLibFunction,
   StdLibModule,
@@ -179,6 +179,22 @@ function createTypesModule(): StdLibModule {
     .build();
 }
 
+function createMemoryModule(): StdLibModule {
+  return defineModule("memory")
+    // Float to Double Conversion
+    .defineFunction("free")
+    .returns(createTypeInfo("void"))
+    .withParams("null") // Pointer
+    .done()
+    // Int to Double Conversion
+    .defineFunction("mnew")
+    .returns(createPointerType(createTypeInfo("null"), 1))
+    .withParams("string")
+    .done()
+    // Build
+    .build();
+}
+
 export class StandardLibrary {
   private static instance: StandardLibrary;
   private modules: Map<string, StdLibModule> = new Map();
@@ -240,5 +256,6 @@ export class StandardLibrary {
     this.registerModule(createStringModule());
     this.registerModule(createTypesModule());
     this.registerModule(createStringModule());
+    this.registerModule(createMemoryModule());
   }
 }

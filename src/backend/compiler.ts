@@ -26,6 +26,19 @@ export class FarpyCompiler {
     if (this.debug) console.log(message);
   }
 
+  private async fileExists(path: string): Promise<boolean> {
+    try {
+      const stat = await Deno.stat(path);
+      return stat.isFile;
+    } catch (err) {
+      if (err instanceof Deno.errors.NotFound) {
+        return false;
+      } else {
+        throw err;
+      }
+    }
+  }
+
   private async executeCommand(
     cmd: string,
     args: string[],
@@ -103,8 +116,17 @@ export class FarpyCompiler {
     for (const [lib, module] of stdLibs) {
       const libFile = this.createTempFile(".bc");
       this.stdLibFiles.push(libFile);
+      let libPath = ``;
 
-      let args = [`./stdlib/${lib}.c`, "-c", "-emit-llvm", "-o", libFile];
+      if (await this.fileExists(`./stdlib/${lib}.c`)) {
+        libPath = `./stdlib/${lib}.c`;
+      } else if (await this.fileExists(`./stdlib/${lib}.cpp`)) {
+        libPath = `./stdlib/${lib}.cpp`;
+      } else {
+        throw new Error(`Source file for library "${lib}" not found.`);
+      }
+
+      let args = [libPath, "-c", "-emit-llvm", "-o", libFile];
 
       if (module.flags) {
         args = [...args, ...module.flags];
@@ -185,7 +207,7 @@ export class FarpyCompiler {
         "-fomit-frame-pointer",
         "-fstrict-aliasing",
         "-ffast-math",
-        "-fno-rtti",
+        // "-fno-rtti",
         "-funwind-tables",
         "-g0",
         ...moduleArgs,

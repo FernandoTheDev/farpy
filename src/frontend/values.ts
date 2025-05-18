@@ -23,7 +23,11 @@ export type TypesNative =
   | "double"
   | "binary"
   | "void"
-  | "char *";
+  | "char"
+  | "const char"
+  | "i64"
+  | "i128"
+  | "long";
 // GenericType;
 
 export const TypesNativeArray: string[] = [

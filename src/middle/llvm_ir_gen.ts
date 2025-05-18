@@ -13,6 +13,7 @@ import {
   BinaryExpr,
   BinaryLiteral,
   CallExpr,
+  CastExpr,
   ElifStatement,
   Expr,
   ExternStatement,
@@ -188,6 +189,8 @@ export class LLVMIRGenerator {
         return this.generateNullLiteral(node as NullLiteral, entry, main);
       case "CallExpr":
         return this.generateCallExpr(node as CallExpr, entry, main);
+      case "CastExpr":
+        return this.generateCastExpr(node as CastExpr, entry, main);
       case "ImportStatement":
         return this.makeIrValue("0", "i32");
       case "ReturnStatement":
@@ -197,6 +200,15 @@ export class LLVMIRGenerator {
           `Unsupported node kind for IR generation: ${node.kind}`,
         );
     }
+  }
+
+  private generateCastExpr(
+    node: CastExpr,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
+    const value = this.generateNode(node.expr, main);
+    return entry.convertValueToType(value, node.llvmType!);
   }
 
   private generateArrayLiteral(
@@ -228,7 +240,7 @@ export class LLVMIRGenerator {
             node.loc,
             `Cannot dereference non-pointer type ${operand.type}`,
           );
-          console.log("ERROR");
+          console.log(`Cannot dereference non-pointer type ${operand.type}`);
           return this.makeIrValue("0", "i32"); // Default error value
         }
         return entry.loadInst({ value: operand.value, type: operand.type });
@@ -320,66 +332,6 @@ export class LLVMIRGenerator {
         return this.makeIrValue("0", "i32"); // Default error value
     }
   }
-
-  // private generateWhileStatement(
-  //   node: WhileStatement,
-  //   entry: LLVMBasicBlock,
-  //   main: LLVMFunction,
-  // ): IRValue {
-  //   if (this.debug) {
-  //     entry.add(
-  //       `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
-  //     );
-  //   }
-
-  //   const condBlock = main.createBasicBlock("while.cond" + main.nextBlockId());
-  //   const bodyBlock = main.createBasicBlock("while.body" + main.nextBlockId());
-  //   const endBlock = main.createBasicBlock("while.end" + main.nextBlockId());
-
-  //   const outerVariables = new Map(this.variables);
-
-  //   entry.brInst(condBlock.label);
-
-  //   main.setCurrentBasicBlock(condBlock);
-  //   const condValue = this.generateNode(
-  //     node.condition,
-  //     main,
-  //     main.getCurrentBasicBlock(),
-  //   );
-
-  //   // console.log(condValue, main.getCurrentBasicBlock());
-  //   // Deno.exit();
-
-  //   main.getCurrentBasicBlock().condBrInst(
-  //     condValue,
-  //     bodyBlock.label,
-  //     endBlock.label,
-  //   );
-
-  //   main.setCurrentBasicBlock(bodyBlock);
-  //   const oldLoopIncBlock = this.currentLoopIncBlock;
-  //   this.currentLoopIncBlock = bodyBlock;
-
-  //   for (const stmt of node.block) {
-  //     this.generateNode(stmt, main);
-  //   }
-
-  //   // Restore the previous loop end block
-  //   this.currentLoopIncBlock = oldLoopIncBlock;
-
-  //   if (
-  //     !bodyBlock.instructions.some((instr) =>
-  //       instr.trim().startsWith("ret ") || instr.trim().startsWith("br ")
-  //     )
-  //   ) {
-  //     bodyBlock.brInst(condBlock.label);
-  //   }
-
-  //   main.setCurrentBasicBlock(endBlock);
-  //   this.variables = outerVariables;
-
-  //   return this.makeIrValue("0", "i32");
-  // }
 
   private generateExternStatement(
     node: ExternStatement,

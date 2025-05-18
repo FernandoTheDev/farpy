@@ -1,4 +1,4 @@
-import "io" import "math" import "types"
+import "io" import "math"
 
 new PI = pi()
 new E = e()
@@ -22,9 +22,9 @@ new exp_value1 = E ** 2
 new exp_value2 = E ** 3
 
 new log_value1 = log(E)
-new log_value2 = log(itod(10))
+new log_value2 = log((double)10)
 
-new sqrt_value = sqrt(itod(25))
+new sqrt_value = sqrt((double)25)
 
 new complex_calc = ((sine1 * cosine2) + (tangent1 ** 2) - (exp_value1 / 5) + (log_value2 * sqrt_value)) / 
                    ((cosine1 + sine3) * (tangent2 - exp_value2) + log_value1) + 

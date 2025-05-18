@@ -101,6 +101,7 @@ export class Optimizer {
       case "ImportStatement":
       case "ExternStatement":
       case "BooleanLiteral":
+      case "CastExpr":
         return expr;
       default:
         this.reporter.addWarning(

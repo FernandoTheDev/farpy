@@ -50,6 +50,7 @@ export class TypeChecker {
     this.typeMap.set("null", LLVMType.PTR);
     this.typeMap.set("ptr", LLVMType.PTR);
     this.typeMap.set("id", LLVMType.PTR);
+    this.typeMap.set("void*", LLVMType.PTR);
     this.typeMap.set("void", LLVMType.VOID);
     this.typeMap.set("i8*", LLVMType.STRING);
     // C | const char *
