@@ -22,6 +22,7 @@ import {
   FunctionDeclaration,
   Identifier,
   IfStatement,
+  IndexAccess,
   IntLiteral,
   LLVMType,
   NullLiteral,
@@ -29,6 +30,7 @@ import {
   ReturnStatement,
   Stmt,
   StringLiteral,
+  StructStatement,
   TypeInfo,
   UnaryExpr,
   VariableDeclaration,
@@ -175,6 +177,12 @@ export class LLVMIRGenerator {
           entry,
           main,
         );
+      case "StructStatement":
+        return this.generateStructStatement(
+          node as StructStatement,
+          entry,
+          main,
+        );
       case "ArrayLiteral":
         return this.generateArrayLiteral(node as ArrayLiteral, entry, main);
       case "StringLiteral":
@@ -187,6 +195,8 @@ export class LLVMIRGenerator {
         return this.generateBinaryLiteral(node as BinaryLiteral, entry, main);
       case "NullLiteral":
         return this.generateNullLiteral(node as NullLiteral, entry, main);
+      case "BooleanLiteral":
+        return this.makeIrValue(String(Number(node.value)), "i1");
       case "CallExpr":
         return this.generateCallExpr(node as CallExpr, entry, main);
       case "CastExpr":
@@ -195,11 +205,58 @@ export class LLVMIRGenerator {
         return this.makeIrValue("0", "i32");
       case "ReturnStatement":
         return this.makeReturnStatement(node as ReturnStatement, entry, main);
+      case "IndexAccess":
+        return this.generateIndexAccess(node as IndexAccess, entry, main);
       default:
         throw new Error(
           `Unsupported node kind for IR generation: ${node.kind}`,
         );
     }
+  }
+
+  private generateIndexAccess(
+    node: IndexAccess,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
+    const element = this.generateNode(node.target, main);
+    const index = this.generateNode(node.index, main);
+
+    // Array
+    if (element.type.includes("x")) {
+      return entry.getArrayElement(
+        element.type.includes("*") ? element : entry.toPtr(element),
+        index,
+      );
+    }
+
+    // String
+    if (element.type.includes("i8")) {
+      return entry.getStringElementPtr(
+        element.type.includes("*") ? element : entry.toPtr(element),
+        index,
+      );
+    }
+
+    this.reporter.addError(node.target.loc, "Unsupported type for IndexAcess");
+    throw new Error(
+      `Unsupported type for IndexAcess`,
+    );
+  }
+
+  private generateStructStatement(
+    node: StructStatement,
+    entry: LLVMBasicBlock,
+    _main: LLVMFunction,
+  ): IRValue {
+    const types: string[] = [];
+
+    for (const propertie of node.body) {
+      types.push(String(propertie.llvmType));
+    }
+
+    this.module.addGlobal(entry.createStructType(node.name.value, types));
+    return this.makeIrValue("0", "i32");
   }
 
   private generateCastExpr(
@@ -216,7 +273,23 @@ export class LLVMIRGenerator {
     entry: LLVMBasicBlock,
     _main: LLVMFunction,
   ): IRValue {
-    return entry.allocaArrayInst(node.llvmType!, node.value.length);
+    const values: string[] = [];
+
+    for (const value of node.value) {
+      values.push(value.value);
+    }
+
+    const ptr = entry.allocaArrayInst(node.llvmType!, node.value.length);
+
+    for (let i = 0; i < values.length; i++) {
+      entry.setArrayElement(
+        ptr,
+        this.makeIrValue(String(i), "i32"),
+        this.makeIrValue(String(node.value[i].value), node.value[i].llvmType!),
+      );
+    }
+
+    return ptr;
   }
 
   private generateUnaryExpr(
@@ -876,6 +949,14 @@ export class LLVMIRGenerator {
         return entry.icmpInst("sgt", left, right);
       case ">=":
         return entry.icmpInst("sge", left, right);
+      case "%": {
+        // i % j = j - i * ( i / j )
+        // i left
+        // j right
+        const div = entry.divInst(left, right);
+        const mul = entry.mulInst(right, div);
+        return entry.subInst(left, mul);
+      }
       default:
         throw new Error(`Unsupported binary operator: ${expr.operator}`);
     }
@@ -1002,9 +1083,7 @@ export class LLVMIRGenerator {
     // );
     const type = this.instance.lookupSymbol(decl.id.value)!.llvmType;
     const value = this.generateNode(decl.value, main);
-    const variable = decl.type.isArray
-      ? entry.allocaArrayInst(type, 100)
-      : entry.allocaInst(type);
+    const variable = decl.type.isArray ? value : entry.allocaInst(type);
 
     if (this.debug) {
       entry.add(
@@ -1025,7 +1104,9 @@ export class LLVMIRGenerator {
       } else {
         entry.storeInst(value, variable);
       }
-    } else {
+    }
+
+    if (decl.type.isArray === false) {
       entry.storeInst(
         { value: value.value, type: type as string },
         variable,

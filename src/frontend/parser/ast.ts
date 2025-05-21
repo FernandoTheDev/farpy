@@ -126,7 +126,9 @@ export type NodeType =
   | "UnaryExpr"
   | "AddressOfExpr"
   | "DereferenceExpr"
-  | "CastExpr";
+  | "CastExpr"
+  | "PointerAssignment"
+  | "IndexAccess";
 
 export interface Stmt {
   kind: NodeType;
@@ -305,6 +307,12 @@ export function AST_ARRAY(
   } as ArrayLiteral;
 }
 
+export interface IndexAccess extends Expr {
+  kind: "IndexAccess";
+  index: Expr;
+  target: Identifier;
+}
+
 export interface CallExpr extends Expr {
   kind: "CallExpr";
   callee: Identifier;
@@ -378,10 +386,17 @@ export interface ForCStyleStatement extends Stmt {
   block: Stmt[];
 }
 
+export type StructProperties = {
+  id: Identifier;
+  value?: Expr;
+  type: TypeInfo;
+  llvmType?: LLVMType;
+};
+
 export interface StructStatement extends Stmt {
   kind: "StructStatement";
   name: Identifier;
-  body: { id: Identifier; value: Expr; type: TypeInfo }[];
+  body: StructProperties[];
 }
 
 // x->y
@@ -510,4 +525,12 @@ export function AST_CAST(type: TypeInfo, expr: Expr, loc: Loc): CastExpr {
     loc,
     value: null,
   };
+}
+
+export interface PointerAssignment extends Stmt {
+  kind: "PointerAssignment";
+  id: Identifier;
+  pointerLevel: number;
+  value: Expr;
+  loc: Loc;
 }

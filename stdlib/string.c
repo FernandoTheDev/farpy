@@ -31,14 +31,6 @@ void str_copy(char *dest, const char *src, size_t max_len)
     dest[max_len - 1] = '\0';
 }
 
-void str_concat(char *dest, const char *src, size_t max_len)
-{
-    size_t len_dest = strlen(dest);
-    if (len_dest >= max_len - 1)
-        return;
-    strncat(dest, src, max_len - len_dest - 1);
-}
-
 bool str_starts_with(const char *str, const char *prefix)
 {
     size_t len_prefix = strlen(prefix);

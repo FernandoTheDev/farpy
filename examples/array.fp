@@ -1,4 +1,6 @@
-new arr1: int[] = [10, 20]
-new arr2 = [0, 1, 2] // int[]
+import "io"
 
-// arr1[3][2][1] = 0
+new arr1: int[] = [10, 20]
+new name = "Fernando"
+
+printf("%d %s\n", arr1[1], name[0])

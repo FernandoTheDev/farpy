@@ -42,6 +42,7 @@ export class TypeChecker {
     this.typeMap.set("i32", LLVMType.I32);
     this.typeMap.set("i64", LLVMType.I64);
     this.typeMap.set("long", LLVMType.I128);
+    this.typeMap.set("i128", LLVMType.I128);
     this.typeMap.set("float", LLVMType.DOUBLE);
     this.typeMap.set("double", LLVMType.DOUBLE);
     this.typeMap.set("string", LLVMType.STRING);
@@ -147,15 +148,15 @@ export class TypeChecker {
     }
 
     const compatibilityMap: Record<string, string[]> = {
-      "int": ["float", "double", "i64", "long"],
-      "i32": ["float", "double", "i64", "long"],
-      "float": ["double", "int", "i32", "i64", "long"],
-      "double": ["int", "i32", "float", "i64", "long"],
+      "int": ["float", "double", "i64", "long", "bool", "i128"],
+      "i32": ["float", "double", "i64", "long", "bool"],
+      "float": ["double", "int", "i32", "i64", "long", "bool"],
+      "double": ["int", "i32", "float", "i64", "long", "bool"],
       "binary": ["int", "i32", "i64", "long"],
-      "i64": ["float", "double"],
-      "long": ["float", "double"],
-      "string": ["const char", "char"],
-      // "bool": ["int", "i32", "long", "float", "double", "string", "i64"],
+      "i64": ["float", "double", "bool"],
+      "long": ["float", "double", "bool"],
+      "string": ["const char", "char", "binary"],
+      "bool": ["int", "i32", "long", "float", "double", "string", "i64"],
     };
 
     if (compatibilityMap[source]?.includes(target)) return true;

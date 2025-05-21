@@ -12,6 +12,8 @@ import {
   ArrayLiteral,
   AssignmentDeclaration,
   AST_ARRAY,
+  AST_BINARY,
+  AST_BOOL,
   AST_FLOAT,
   AST_IDENTIFIER,
   AST_INT,
@@ -19,6 +21,7 @@ import {
   AST_STRING,
   AST_UNARY,
   BinaryExpr,
+  BinaryLiteral,
   CallExpr,
   CastExpr,
   createTypeInfo,
@@ -33,10 +36,14 @@ import {
   Identifier,
   IfStatement,
   ImportStatement,
+  IndexAccess,
   NullLiteral,
+  PointerAssignment as _PointerAssignment,
   Program,
   ReturnStatement,
   Stmt,
+  StructProperties,
+  StructStatement,
   TypeInfo,
   VariableDeclaration,
   WhileStatement,
@@ -90,8 +97,8 @@ export class Parser {
           this.tokens[this.tokens.length - 1].loc,
         )
         : {} as Loc;
-    } catch (_error: any) {
-      console.log(_error);
+    } catch (error: unknown) {
+      console.log(error);
       // Does nothing here, just lets the error propagate
       // The reporter already contains the recorded errors
     }
@@ -134,9 +141,15 @@ export class Parser {
         return AST_FLOAT(token.value as number, token.loc);
       case TokenType.STRING:
         return AST_STRING(token.value as string, token.loc);
+      case TokenType.TRUE:
+        return AST_BOOL(true, token.loc);
+      case TokenType.FALSE:
+        return AST_BOOL(false, token.loc);
       case TokenType.NULL:
       case TokenType.EOF:
         return AST_NULL(token.loc);
+      case TokenType.BINARY:
+        return this.parseBinaryLiteral();
       case TokenType.NEW:
         return this.parseNewExpression();
       case TokenType.IMPORT:
@@ -163,24 +176,13 @@ export class Parser {
         if (this.peek().kind === TokenType.EQUALS) {
           return this.parseAssignment(AST_IDENTIFIER(name, token.loc));
         }
-
-        // cstyle
-        // if (
-        //   this.peek().kind === TokenType.IDENTIFIER &&
-        //   this.next() != false
-        // ) {
-        //   if ((this.next() as Token).kind === TokenType.EQUALS) {
-        //     if (
-        //       new TypeChecker(this.reporter).isValidType(
-        //         this.peek().value as string,
-        //       )
-        //     ) {
-        //       console
-        //       return this.parseCVarDeclaration();
-        //     }
-        //   }
-        // }
-
+        if (this.peek().kind === TokenType.LBRACE) {
+          this.reporter.addWarning(this.previous().loc, "TODO");
+          Deno.exit();
+        }
+        if (this.peek().kind === TokenType.LBRACKET) {
+          return this.parseIndexAccess();
+        }
         return AST_IDENTIFIER(name, token.loc);
       }
       case TokenType.LPAREN:
@@ -213,6 +215,7 @@ export class Parser {
             this.makeLoc(token.loc, operand.loc),
           );
         }
+
         return operand;
       }
       case TokenType.AMPERSAND: {
@@ -229,6 +232,8 @@ export class Parser {
         const operand = this.parseExpression(Precedence.PREFIX);
         return AST_UNARY("!", operand, this.makeLoc(token.loc, operand.loc));
       }
+      case TokenType.STRUCT:
+        return this.parseStructStatement();
       default:
         this.reporter.addError(
           token.loc,
@@ -236,6 +241,80 @@ export class Parser {
         );
         throw new Error(`No prefix parse function for ${token.value}`);
     }
+  }
+
+  private parseIndexAccess(): IndexAccess {
+    const element = this.previous();
+
+    this.consume(TokenType.LBRACKET, "Expected '[' in index access.");
+
+    const index = this.parseExpression(Precedence.LOWEST);
+
+    this.consume(TokenType.RBRACKET, "Expected '[' after index access.");
+
+    return {
+      kind: "IndexAccess",
+      index: index,
+      target: AST_IDENTIFIER(String(element.value), element.loc),
+      loc: this.makeLoc(element.loc, element.loc),
+      type: index.type,
+      value: null,
+    } as IndexAccess;
+  }
+
+  private parseStructExpr() {
+    this.reporter.addWarning(this.previous().loc, "TODO");
+    Deno.exit();
+  }
+
+  private parseStructStatement(): StructStatement {
+    const name = this.consume(
+      TokenType.IDENTIFIER,
+      "An ID was expected for the struct name.",
+    );
+
+    this.consume(TokenType.LBRACE, "Expected '{' after struct name.");
+
+    // { id: Identifier; value: Expr; type: TypeInfo }[]
+    const body: StructProperties[] = [];
+
+    while (this.peek().kind != TokenType.RBRACE && !this.isAtEnd()) {
+      const id = this.consume(
+        TokenType.IDENTIFIER,
+        "Expected ID to name of propertie in struct.",
+      );
+
+      this.consume(TokenType.COLON, "Expected ':' after propertie name.");
+
+      const tokens: Token[] = [];
+
+      while (this.peek().kind != TokenType.SEMICOLON) {
+        tokens.push(this.advance());
+      }
+
+      const type = new ParseType(tokens).parse();
+      body.push({ id: AST_IDENTIFIER(String(id.value), id.loc), type: type });
+      this.consume(TokenType.SEMICOLON, "Expected ';' after type.");
+    }
+
+    this.consume(TokenType.RBRACE, "Expected '}' after struct statement.");
+
+    return {
+      kind: "StructStatement",
+      name: AST_IDENTIFIER(String(name.value), name.loc),
+      body: body,
+      type: createTypeInfo("null"),
+      loc: this.makeLoc(name.loc, name.loc),
+    } as StructStatement;
+  }
+
+  private parseBinaryLiteral(): BinaryLiteral {
+    const token: Token = this.previous();
+    if (/^0b[01]+$/.test(token.value as string) == false) {
+      this.reporter.addError(token.loc, `Invalid binary value.`);
+      Deno.exit();
+    }
+    return AST_BINARY(token.value as string, token.loc);
   }
 
   private parseCastExpression(): Expr {
@@ -247,7 +326,6 @@ export class Parser {
     let nestingLevel = 0;
     let foundClosingParen = false;
     let hasOperators = false;
-    let hasIdentifier = false;
 
     while (!this.isAtEnd()) {
       if (this.check(TokenType.LPAREN)) {
@@ -267,8 +345,6 @@ export class Parser {
         this.check(TokenType.EXPONENTIATION)
       ) {
         hasOperators = true;
-      } else if (this.check(TokenType.IDENTIFIER)) {
-        hasIdentifier = true;
       }
 
       typeTokens.push(this.advance());
@@ -889,6 +965,16 @@ export class Parser {
   private parseBinaryInfix(left: Expr): Expr {
     this.advance();
     const operatorToken = this.previous();
+
+    if (
+      operatorToken.kind == TokenType.ASTERISK ||
+      operatorToken.kind == TokenType.EXPONENTIATION &&
+        this.peek().kind == TokenType.IDENTIFIER &&
+        (this.next() as Token).kind == TokenType.EQUALS
+    ) {
+      // this.parsePointerAssignment();
+    }
+
     const precedence = this.getPrecedence(operatorToken.kind);
     const right = this.parseExpression(precedence);
     const type = this.inferType(left, right);
@@ -913,8 +999,8 @@ export class Parser {
   private peek(): Token {
     return this.tokens[this.pos];
   }
-  private previous(): Token {
-    return this.tokens[this.pos - 1];
+  private previous(i: number = 1): Token {
+    return this.tokens[this.pos - i];
   }
   private advance(): Token {
     if (!this.isAtEnd()) this.pos++;

@@ -53,6 +53,10 @@ export class LLVMBasicBlock {
       const isTargetInt = this.isInteger(targetType);
       const isSourceFloat = this.isFloat(sourceType);
       const isTargetFloat = this.isFloat(targetType);
+      const isSourceBool = sourceType === "i1" || sourceType === "binary" ||
+        sourceType === "bool";
+      const isTargetBool = targetType === "i1" || targetType === "binary" ||
+        targetType === "bool";
 
       // Handle pointer to pointer conversion using bitcast
       if (isSourcePointer && isTargetPointer) {
@@ -81,7 +85,7 @@ export class LLVMBasicBlock {
         return { value: tmp, type: targetType };
       }
 
-      // NEW CASE: Pointer to float conversion (need to go through integer first)
+      // Pointer to float conversion (need to go through integer first)
       if (isSourcePointer && isTargetFloat) {
         // First convert pointer to integer (using i64 for safety with pointers)
         const intTmp = this.nextTemp();
@@ -93,7 +97,7 @@ export class LLVMBasicBlock {
         return { value: floatTmp, type: targetType };
       }
 
-      // NEW CASE: Float to pointer conversion (need to go through integer first)
+      // Float to pointer conversion (need to go through integer first)
       if (isSourceFloat && isTargetPointer) {
         // First convert float to integer
         const intTmp = this.nextTemp();
@@ -103,6 +107,41 @@ export class LLVMBasicBlock {
         const ptrTmp = this.nextTemp();
         this.add(`${ptrTmp} = inttoptr i64 ${intTmp} to ${targetType}`);
         return { value: ptrTmp, type: targetType };
+      }
+
+      // Boolean to integer conversion
+      if (isSourceBool && isTargetInt) {
+        const tmp = this.nextTemp();
+        this.add(`${tmp} = zext i1 ${value.value} to ${targetType}`);
+        return { value: tmp, type: targetType };
+      }
+
+      // Integer to boolean conversion
+      if (isSourceInt && isTargetBool) {
+        const tmp = this.nextTemp();
+        // Convert by comparing with zero (non-zero = true, zero = false)
+        this.add(`${tmp} = icmp ne ${sourceType} ${value.value}, 0`);
+        return { value: tmp, type: "i1" };
+      }
+
+      // Boolean to float conversion
+      if (isSourceBool && isTargetFloat) {
+        // First convert bool to integer (i32)
+        const intTmp = this.nextTemp();
+        this.add(`${intTmp} = zext i1 ${value.value} to i32`);
+
+        // Then convert integer to float
+        const floatTmp = this.nextTemp();
+        this.add(`${floatTmp} = sitofp i32 ${intTmp} to ${targetType}`);
+        return { value: floatTmp, type: targetType };
+      }
+
+      // Float to boolean conversion
+      if (isSourceFloat && isTargetBool) {
+        const tmp = this.nextTemp();
+        // Convert by comparing with zero (non-zero = true, zero = false)
+        this.add(`${tmp} = fcmp une ${sourceType} ${value.value}, 0.0`);
+        return { value: tmp, type: "i1" };
       }
 
       // Integer type conversions
@@ -304,8 +343,10 @@ export class LLVMBasicBlock {
         // For array types, parse dimensions and calculate alignment
         if (baseType.includes("[") && baseType.includes("x")) {
           // Extract the element type (e.g., for [4 x i32], get i32)
-          const elementType = baseType.substring(baseType.lastIndexOf("x") + 1)
-            .trim();
+          const elementType = baseType.substring(
+            baseType.lastIndexOf("x") + 2,
+          )
+            .trim().replace("]", "");
           return this.getAlign(elementType);
         }
 
@@ -593,7 +634,7 @@ export class LLVMBasicBlock {
    * @param initialValues Optional initial values for the array elements
    * @returns The IR code for the global array declaration
    */
-  public static createGlobalArray(
+  public createGlobalArray(
     name: string,
     elementType: string,
     size: number,
@@ -605,10 +646,50 @@ export class LLVMBasicBlock {
       const initStr = initialValues
         .map((val) => `${elementType} ${val}`)
         .join(", ");
-      return `@${name} = global ${arrayType} [${initStr}]`;
+      return `@.arr${name} = global ${arrayType} [${initStr}]`;
     } else {
-      return `@${name} = global ${arrayType} zeroinitializer`;
+      return `@.arr${name} = global ${arrayType} zeroinitializer`;
     }
+  }
+
+  public getStringElementPtr(stringPtr: IRValue, index: IRValue): IRValue {
+    if (!stringPtr.type.endsWith("*")) {
+      throw new Error(
+        `getStringElementPtr requires a pointer to a string (i8*), got ${stringPtr.type}`,
+      );
+    }
+
+    let indexValue = index;
+    if (index.type !== "i32") {
+      indexValue = this.convertValueToType(index, "i32");
+    }
+
+    const tmp = this.nextTemp();
+
+    this.add(
+      `${tmp} = getelementptr inbounds i8, ${stringPtr.type} ${stringPtr.value}, i32 ${indexValue.value}`,
+    );
+
+    const charTmp = this.nextTemp();
+    this.add(`${charTmp} = load i8, i8* ${tmp}, align 1`);
+
+    const resultPtr = this.nextTemp();
+    this.add(`${resultPtr} = alloca [2 x i8], align 1`);
+
+    const firstCharPtr = this.nextTemp();
+    this.add(
+      `${firstCharPtr} = getelementptr inbounds [2 x i8], [2 x i8]* ${resultPtr}, i32 0, i32 0`,
+    );
+
+    this.add(`store i8 ${charTmp}, i8* ${firstCharPtr}, align 1`);
+
+    const nullTermPtr = this.nextTemp();
+    this.add(
+      `${nullTermPtr} = getelementptr inbounds i8, i8* ${firstCharPtr}, i32 1`,
+    );
+    this.add(`store i8 0, i8* ${nullTermPtr}, align 1`);
+
+    return { value: firstCharPtr, type: "i8*" };
   }
 
   /** x[index]
@@ -808,7 +889,7 @@ export class LLVMBasicBlock {
    * @param fieldTypes The types of the struct fields
    * @returns The IR code for the struct type definition
    */
-  public static createStructType(
+  public createStructType(
     structName: string,
     fieldTypes: string[],
   ): string {

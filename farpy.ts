@@ -11,7 +11,7 @@ import { Lexer } from "./src/frontend/lexer/lexer.ts";
 import { Parser } from "./src/frontend/parser/parser.ts";
 import { Semantic } from "./src/middle/semantic.ts";
 import { LLVMIRGenerator } from "./src/middle/llvm_ir_gen.ts";
-import { FarpyCompiler } from "./src/backend/compiler.ts";
+import { FarpyCompiler, Logger } from "./src/backend/compiler.ts";
 import { DiagnosticReporter } from "./src/error/diagnosticReporter.ts";
 import { Token } from "./src/frontend/lexer/token.ts";
 import { Optimizer } from "./src/middle/optimizer.ts";
@@ -29,7 +29,7 @@ export class FarpyCompilerMain {
   private fileName: string;
   private fileData: string;
   private readonly reporter: DiagnosticReporter;
-  private args: any;
+  private args;
 
   constructor(args: string[]) {
     this.args = parseArgs(args, ARG_CONFIG);
@@ -61,7 +61,12 @@ export class FarpyCompilerMain {
       Deno.exit(-1);
     }
 
-    this.fileData = Deno.readTextFileSync(this.fileName);
+    try {
+      this.fileData = Deno.readTextFileSync(this.fileName);
+    } catch (_error) {
+      Logger.error(`O arquivo '${this.fileName}' não existe.`);
+      Deno.exit(-1);
+    }
   }
 
   private shouldShowTargetHelp(): boolean {
@@ -154,9 +159,9 @@ export class FarpyCompilerMain {
   }
 
   private handleAstJson(ast: Program): boolean {
-    if (this.args["ast-json"]) {
+    if (this.args["emit-ast"]) {
       Deno.writeTextFileSync(
-        this.args["ast-json-save"],
+        "ast.json",
         JSON.stringify(ast, null, "\t"),
       );
       return true;
@@ -200,7 +205,7 @@ export class FarpyCompilerMain {
   }
 
   private handleEmitIR(): boolean {
-    return this.args["emit-llvm-ir"] != "";
+    return this.args["emit-ir"] != "";
   }
 
   private async runBackendCompilation(
@@ -265,17 +270,34 @@ export class FarpyCompilerMain {
         this.args.target ?? "",
         llvmIR.externs,
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Compilation failed:", error);
-      if (this.args["debug"]) {
-        console.error((error as any).stack);
-      }
       Deno.exit(1);
     }
   }
 }
 
 async function main() {
+  const home = Deno.env.get("HOME");
+
+  if (!home) {
+    Logger.error("Could not get $HOME variable from your environment.");
+    return;
+  }
+
+  const path = `${home}/.farpy/`;
+
+  try {
+    if ((await Deno.stat(path)).isDirectory === false) {
+      throw new Error("Directory does not exist.");
+    }
+  } catch (_err) {
+    Logger.error(
+      `Compiler installation failed, directory '${path}' not found, please reinstall the compiler.`,
+    );
+    return;
+  }
+
   const compiler = new FarpyCompilerMain(Deno.args);
   await compiler.run();
 }

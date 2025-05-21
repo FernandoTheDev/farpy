@@ -7,6 +7,7 @@
  * See the LICENSE file in the project root for full license information.
  */
 import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
+import { TypesNative } from "../values.ts";
 import { Keywords, Loc, NativeValue, Token, TokenType } from "./token.ts";
 
 export class Lexer {
@@ -133,7 +134,7 @@ export class Lexer {
 
         // Handle unexpected characters
         this.reporter.addError(
-          this.makeLocation(char),
+          this.makeLocation(char as TypesNative),
           `Unexpected token "${char}"`,
           [
             this.reporter.makeSuggestion(
@@ -144,7 +145,7 @@ export class Lexer {
         );
         this.offset++; // Skip the problematic character
       }
-    } catch (_error: any) {
+    } catch (_error: unknown) {
       return null;
     }
 
@@ -404,7 +405,7 @@ export class Lexer {
     };
   }
 
-  private makeLocation(value: any, line?: number): Loc {
+  private makeLocation(value: TypesNative, line?: number): Loc {
     const valueLength = typeof value === "string"
       ? value.length
       : String(value).length;
@@ -419,7 +420,7 @@ export class Lexer {
     const token: Token = {
       kind,
       value,
-      loc: this.makeLocation(value),
+      loc: this.makeLocation(value as TypesNative),
     };
     this.tokens.push(token);
     this.offset += skipChars;

@@ -24,8 +24,10 @@ import {
   FunctionDeclaration,
   IfStatement,
   ImportStatement,
+  IndexAccess,
   LLVMType,
   ReturnStatement,
+  StructStatement,
   TypeInfo,
   typeInfoToString,
   UnaryExpr,
@@ -100,8 +102,8 @@ export class Semantic {
     for (const node of program.body || []) {
       try {
         analyzedNodes.push(this.analyzeNode(node));
-      } catch (_error: any) {
-        console.log(_error);
+      } catch (error: unknown) {
+        console.log(error);
         // Ignore
       }
     }
@@ -199,11 +201,18 @@ export class Semantic {
       case "CastExpr":
         analyzedNode = this.analyzeCastExpr(node as CastExpr);
         break;
+      case "StructStatement":
+        analyzedNode = this.analyzeStructStatement(node as StructStatement);
+        break;
+      case "IndexAccess":
+        analyzedNode = this.analyzeIndexAccess(node as IndexAccess);
+        break;
       case "StringLiteral":
       case "IntLiteral":
       case "FloatLiteral":
       case "BinaryLiteral":
       case "NullLiteral":
+      case "BooleanLiteral":
         analyzedNode = {
           ...node,
           llvmType: this.typeChecker.mapToLLVMType(node.type.baseType),
@@ -225,6 +234,36 @@ export class Semantic {
     }
 
     return analyzedNode;
+  }
+
+  private analyzeIndexAccess(node: IndexAccess): IndexAccess {
+    const target = this.scopeStack[0].get(node.target.value);
+
+    if (
+      target?.sourceType.baseType == "string" && !target?.sourceType.isArray
+    ) {
+      node.type = target?.sourceType;
+      node.llvmType = target?.llvmType;
+    }
+
+    if (target?.sourceType.isArray) {
+      node.type.baseType = target?.sourceType.baseType;
+      node.llvmType = target?.llvmType;
+    }
+
+    node.index = this.analyzeNode(node.index);
+
+    return node;
+  }
+
+  private analyzeStructStatement(node: StructStatement): StructStatement {
+    for (const propertie of node.body) {
+      propertie.llvmType = this.typeChecker.mapToLLVMType(
+        propertie.type.baseType,
+      );
+    }
+
+    return node;
   }
 
   private analyzeCastExpr(node: CastExpr): CastExpr {
@@ -395,7 +434,6 @@ export class Semantic {
       const newType = { ...node.operand.type };
       newType.pointerLevel = (newType.pointerLevel || 0) + 1;
       newType.isPointer = true;
-      newType.baseType = "null";
 
       node.type = newType;
       node.llvmType = LLVMType.PTR;
@@ -403,32 +441,6 @@ export class Semantic {
 
     return node;
   }
-
-  // private analyzeUnaryExpr(node: UnaryExpr): UnaryExpr {
-  //   node.operand = this.analyzeNode(node.operand) as Expr;
-
-  //   if (node.operator === "*") {
-  //     if (!this.typeChecker.isPointerType(node.operand.type)) {
-  //       this.reporter.addError(
-  //         node.loc,
-  //         `Cannot dereference non-pointer type '${
-  //           typeInfoToString(node.operand.type)
-  //         }'`,
-  //       );
-  //       throw new Error(
-  //         `Cannot dereference non-pointer type '${
-  //           typeInfoToString(node.operand.type)
-  //         }' at ${node.loc.line}:${node.loc.start}`,
-  //       );
-  //     }
-
-  //     node.type = node.operand.type;
-  //     node.llvmType = this.typeChecker.mapToLLVMType(node.type.baseType);
-  //   }
-
-  //   console.log(this.scopeStack[0].get(node.operand.value));
-  //   return node;
-  // }
 
   private analyzeWhileStatement(node: WhileStatement): WhileStatement {
     node.condition = this.analyzeNode(node.condition);
@@ -560,7 +572,7 @@ export class Semantic {
     if (symbol.llvmType != analyzedValue.llvmType) {
       this.reporter.addError(
         node.loc,
-        `The variable was initially ${symbol.sourceType}, but you passed a value of type ${analyzedValue.type}.`,
+        `The variable was initially ${symbol.sourceType.baseType}, but you passed a value of type ${analyzedValue.type.baseType}.`,
       );
       throw new Error(
         `The variable was initially ${symbol.sourceType}, but you passed a value of type ${analyzedValue.type}.`,
@@ -814,28 +826,6 @@ export class Semantic {
         continue;
       }
 
-      // if (
-      //   stmt.kind == "ImportStatement" &&
-      //   this.importedModules.has((stmt as ImportStatement).path.value)
-      // ) {
-      //   this.reporter.addError(
-      //     node.path.loc,
-      //     `Module '${
-      //       (stmt as ImportStatement).path.value
-      //     }' is already imported`,
-      //     [
-      //       this.reporter.makeSuggestion(
-      //         "Remove the import in the file you are importing, not the one being imported.",
-      //       ),
-      //     ],
-      //   );
-      //   throw new Error(
-      //     `Module '${
-      //       (stmt as ImportStatement).path.value
-      //     }' is already imported`,
-      //   );
-      // }
-
       this.externalNodes.push(stmt);
     }
 
@@ -901,7 +891,7 @@ export class Semantic {
           node.arguments[i].loc,
           `Argument ${
             i + 1
-          } of function '${funcName}' expects type '${paramType}', but got '${argType}'`,
+          } of function '${funcName}' expects type '${paramType}', but got '${argType.baseType}'`,
         );
         throw new Error(
           `Argument ${
@@ -914,21 +904,6 @@ export class Semantic {
         this.typeChecker.areTypesCompatible(argType.baseType, paramType) &&
         argType.baseType !== paramType
       ) {
-        if (!node.arguments[i].kind.includes("Literal")) {
-          // this.reporter.addError(
-          //   node.arguments[i].loc,
-          //   `You passed an argument of type ${argType} but a ${paramType} was expected.`,
-          //   [
-          //     this.reporter.makeSuggestion(
-          //       "Do type conversion, use the 'types' library",
-          //     ),
-          //   ],
-          // );
-          // new Error(
-          //   `You passed an argument of type ${argType} but a ${paramType} was expected.`,
-          // );
-        }
-
         node.arguments[i].llvmType = this.typeChecker.mapToLLVMType(paramType);
         node.arguments[i].type.baseType = paramType;
       }

@@ -6,7 +6,6 @@
  * This software is licensed under the MIT License.
  * See the LICENSE file in the project root for full license information.
  */
-import { backTrace } from "jsr:@std/internal@^1.0.6/diff";
 import {
   createPointerType,
   createTypeInfo,
