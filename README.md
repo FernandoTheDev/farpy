@@ -53,7 +53,7 @@ Ensure that all tools are available in your system `PATH`.
    ```
 3. **Build the compiler**:
    ```bash
-   ./build.sh install
+   ./build install
    ```
 4. **Compile a Farpy program**:
    ```bash

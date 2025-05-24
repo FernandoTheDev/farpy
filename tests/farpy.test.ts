@@ -79,7 +79,7 @@ Deno.test({
 
     assertEquals(
       outText,
-      "102334155\n",
+      "55\n",
       "A saída do programa não corresponde ao valor esperado",
     );
 

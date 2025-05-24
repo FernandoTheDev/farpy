@@ -10,6 +10,7 @@ import { TypesNative } from "../values.ts";
 import { Loc, Token, TokenType } from "../lexer/token.ts";
 import {
   ArrayLiteral,
+  ArrowExpression,
   AssignmentDeclaration,
   AST_ARRAY,
   AST_BINARY,
@@ -42,6 +43,8 @@ import {
   Program,
   ReturnStatement,
   Stmt,
+  StructExpr,
+  StructPAssignment,
   StructProperties,
   StructStatement,
   TypeInfo,
@@ -76,7 +79,6 @@ export class Parser {
     this.tokens = tokens;
   }
 
-  // Entry point
   public parse(): Program {
     const program: Program = {
       kind: "Program",
@@ -97,8 +99,8 @@ export class Parser {
           this.tokens[this.tokens.length - 1].loc,
         )
         : {} as Loc;
-    } catch (error: unknown) {
-      console.log(error);
+    } catch (_error: unknown) {
+      console.log("Err", _error);
       // Does nothing here, just lets the error propagate
       // The reporter already contains the recorded errors
     }
@@ -113,9 +115,7 @@ export class Parser {
   private parseExpressionStatement(): Expr {
     const expr = this.parseExpression(Precedence.LOWEST);
     // optionally consume semicolon
-    if (this.match(TokenType.SEMICOLON)) {
-      // ignore
-    }
+    this.match(TokenType.SEMICOLON);
     return expr;
   }
 
@@ -176,12 +176,19 @@ export class Parser {
         if (this.peek().kind === TokenType.EQUALS) {
           return this.parseAssignment(AST_IDENTIFIER(name, token.loc));
         }
-        if (this.peek().kind === TokenType.LBRACE) {
-          this.reporter.addWarning(this.previous().loc, "TODO");
-          Deno.exit();
+        // TODO: I need to check this better
+        // I can only create a struct in a variable declaration for now
+        if (
+          this.peek().kind === TokenType.LBRACE &&
+          this.previous(2).kind == TokenType.EQUALS
+        ) {
+          return this.parseStructExpr();
         }
         if (this.peek().kind === TokenType.LBRACKET) {
           return this.parseIndexAccess();
+        }
+        if (this.peek().kind === TokenType.DOT) {
+          return this.parseArrowExpression();
         }
         return AST_IDENTIFIER(name, token.loc);
       }
@@ -243,6 +250,42 @@ export class Parser {
     }
   }
 
+  private parseArrowExpression(): ArrowExpression | StructPAssignment {
+    const name = this.previous();
+    this.consume(TokenType.DOT, "Expected '.' for struct access propertie.");
+    const propertie = this.parseExpression(Precedence.LOWEST);
+
+    if (propertie.kind == "Identifier") {
+      return {
+        kind: "ArrowExpression",
+        from: AST_IDENTIFIER(String(name.value), name.loc),
+        to: propertie,
+        type: createTypeInfo("void"),
+        value: null,
+        loc: this.makeLoc(name.loc, propertie.loc),
+      } as ArrowExpression;
+    }
+
+    if (propertie.kind == "AssignmentDeclaration") {
+      return {
+        kind: "StructPAssignment",
+        from: AST_IDENTIFIER(String(name.value), name.loc),
+        to: propertie,
+        type: createTypeInfo("void"),
+        value: null,
+        loc: this.makeLoc(name.loc, propertie.loc),
+      } as StructPAssignment;
+    }
+
+    this.reporter.addError(
+      propertie.loc,
+      `Unexpected kind of expr in arrow expression '${propertie.kind}'.`,
+    );
+    throw new Error(
+      `Unexpected kind of expr in arrow expression '${propertie.kind}'.`,
+    );
+  }
+
   private parseIndexAccess(): IndexAccess {
     const element = this.previous();
 
@@ -262,9 +305,50 @@ export class Parser {
     } as IndexAccess;
   }
 
-  private parseStructExpr() {
-    this.reporter.addWarning(this.previous().loc, "TODO");
-    Deno.exit();
+  private parseStructExpr(): StructExpr {
+    const name = this.previous();
+
+    this.consume(TokenType.LBRACE, "Expected '{' after struct name.");
+
+    // { id: Identifier; value: Expr; type: TypeInfo }[]
+    const body: StructProperties[] = [];
+    let i = 0;
+
+    while (this.peek().kind != TokenType.RBRACE && !this.isAtEnd()) {
+      const id = this.consume(
+        TokenType.IDENTIFIER,
+        "Expected ID to name of propertie in struct.",
+      );
+
+      this.consume(TokenType.COLON, "Expected ':' after propertie name.");
+
+      while (
+        this.peek().kind != TokenType.COMMA &&
+        this.peek().kind != TokenType.RBRACE
+      ) {
+        const expr = this.parseExpression(Precedence.LOWEST);
+        body.push({
+          id: AST_IDENTIFIER(String(id.value), id.loc),
+          value: expr,
+          type: expr.type,
+          index: i,
+        });
+      }
+
+      i++;
+      this.match(TokenType.COMMA);
+      // this.consume(TokenType.COMMA, "Expected ',' after type.");
+    }
+
+    this.consume(TokenType.RBRACE, "Expected '}' after struct statement.");
+
+    return {
+      kind: "StructExpr",
+      name: AST_IDENTIFIER(String(name.value), name.loc),
+      body: body,
+      type: createTypeInfo(String(name.value), true),
+      loc: this.makeLoc(name.loc, name.loc),
+    } as StructExpr;
   }
 
   private parseStructStatement(): StructStatement {
@@ -277,6 +361,7 @@ export class Parser {
 
     // { id: Identifier; value: Expr; type: TypeInfo }[]
     const body: StructProperties[] = [];
+    let i = 0;
 
     while (this.peek().kind != TokenType.RBRACE && !this.isAtEnd()) {
       const id = this.consume(
@@ -293,7 +378,12 @@ export class Parser {
       }
 
       const type = new ParseType(tokens).parse();
-      body.push({ id: AST_IDENTIFIER(String(id.value), id.loc), type: type });
+      body.push({
+        id: AST_IDENTIFIER(String(id.value), id.loc),
+        type: type,
+        index: i,
+      });
+      i++;
       this.consume(TokenType.SEMICOLON, "Expected ';' after type.");
     }
 
@@ -303,16 +393,16 @@ export class Parser {
       kind: "StructStatement",
       name: AST_IDENTIFIER(String(name.value), name.loc),
       body: body,
-      type: createTypeInfo("null"),
+      type: createTypeInfo(String(name.value), true),
       loc: this.makeLoc(name.loc, name.loc),
     } as StructStatement;
   }
 
   private parseBinaryLiteral(): BinaryLiteral {
     const token: Token = this.previous();
-    if (/^0b[01]+$/.test(token.value as string) == false) {
+    if (/^(0b[01]+|[01]+b)$/.test(token.value as string) == false) {
       this.reporter.addError(token.loc, `Invalid binary value.`);
-      Deno.exit();
+      throw new Error("Invalid binary value.");
     }
     return AST_BINARY(token.value as string, token.loc);
   }
@@ -618,7 +708,7 @@ export class Parser {
       );
     }
 
-    if (this.match(TokenType.AS)) {
+    if (this.match(TokenType.ARROW)) {
       id = this.consume(
         TokenType.IDENTIFIER,
         "An identifier was expected.",

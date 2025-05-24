@@ -1,9 +1,6 @@
 import "io"
 
-fn show_b(n: binary) {
-    printf("n = %d\n", n)
-}
+// int
+new b: int = 0b1001 + 111100b
 
-new b: binary = 0b1000101
-
-show_b(b)
+printf("%d\n", b)

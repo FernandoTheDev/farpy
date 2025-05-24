@@ -15,6 +15,7 @@ import {
   TypeInfo,
 } from "../frontend/parser/ast.ts";
 import { TypesNative } from "../frontend/values.ts";
+import { Semantic } from "./semantic.ts";
 
 export class TypeChecker {
   private typeMap: Map<TypesNative | string, LLVMType>;
@@ -32,7 +33,10 @@ export class TypeChecker {
     "double": 5,
   };
 
-  constructor(private readonly reporter?: DiagnosticReporter) {
+  constructor(
+    private readonly reporter?: DiagnosticReporter,
+    private readonly semantic?: Semantic,
+  ) {
     this.typeMap = new Map();
     this.initializeTypeMap();
   }
@@ -65,15 +69,19 @@ export class TypeChecker {
 
   public mapToLLVMType(
     sourceType: TypesNative | string,
-  ): LLVMType {
+  ): LLVMType | string {
     const llvmType = this.typeMap.get(sourceType as string);
     if (!llvmType) {
-      throw new Error(`Unsupported type mapping for ${sourceType}`);
+      const struct = this.semantic?.structs.get(sourceType);
+      if (!struct) {
+        throw new Error(`Unsupported type mapping for ${sourceType}`);
+      }
+      return `%${struct.name.value}`;
     }
     return llvmType;
   }
 
-  public getLLVMTypeString(type: LLVMType): string {
+  public getLLVMTypeString(type: LLVMType | string): string {
     switch (type) {
       case LLVMType.I1:
         return "i1";
@@ -170,8 +178,8 @@ export class TypeChecker {
     right: Expr,
     operator: string,
   ): TypeInfo {
-    const leftType: TypesNative = left.type.baseType;
-    const rightType: TypesNative = right.type.baseType;
+    const leftType: TypesNative | string = left.type.baseType;
+    const rightType: TypesNative | string = right.type.baseType;
 
     // Check compatibility between types
     if (
@@ -324,7 +332,6 @@ export class TypeChecker {
     this.typeMap.set(sourceType, llvmType);
   }
 
-  // Helper
   private makeLoc(start: Loc, end: Loc): Loc {
     return { ...start, end: end.end, line_string: start.line_string };
   }
@@ -333,19 +340,23 @@ export class TypeChecker {
     value: NativeValue,
     targetType: string,
   ): string | number {
-    if (!Number.isNaN(value)) {
-      if (targetType === "float" || targetType === "double") {
-        return Number.isInteger(Number(value)) && !String(value).includes(".")
-          ? `${value}.0`
-          : `${value}`;
+    try {
+      if (!Number.isNaN(value) && !targetType.includes("i8")) {
+        if (targetType === "float" || targetType === "double") {
+          return Number.isInteger(Number(value)) && !String(value).includes(".")
+            ? `${value}.0`
+            : `${value}`;
+        }
+        return `${Math.floor(value as number)}`;
       }
-      return `${Math.floor(value as number)}`;
-    }
 
-    if (typeof value === "string") {
-      return value;
+      if (typeof value === "string") {
+        return value;
+      }
+    } catch (_error) {
+      // It will give an error if it does not find the include in the value type.
+      // So we ignore it here and let it go to fallback
     }
-
     return `${value}`;
   }
 
@@ -357,9 +368,12 @@ export class TypeChecker {
 // Create a singleton instance for global access
 let typeCheckerInstance: TypeChecker | null = null;
 
-export function getTypeChecker(reporter?: DiagnosticReporter): TypeChecker {
+export function getTypeChecker(
+  reporter?: DiagnosticReporter,
+  semantic?: Semantic,
+): TypeChecker {
   if (!typeCheckerInstance) {
-    typeCheckerInstance = new TypeChecker(reporter);
+    typeCheckerInstance = new TypeChecker(reporter, semantic);
   }
   return typeCheckerInstance;
 }

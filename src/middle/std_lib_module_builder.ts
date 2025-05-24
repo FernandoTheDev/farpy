@@ -13,7 +13,7 @@ import { FunctionBuilder } from "./function_builder.ts";
 export interface StdLibFunction {
   name: string;
   returnType: TypeInfo;
-  llvmType: LLVMType;
+  llvmType: LLVMType | string;
   params: string[];
   isVariadic: boolean;
   llvmName: string;

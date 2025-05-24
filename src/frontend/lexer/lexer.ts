@@ -1,5 +1,5 @@
 /**
- * Farpy - A programming language
+ * Farpy - A programming language (Optimized Lexer)
  *
  * Copyright (c) 2025 Fernando (FernandoTheDev)
  *
@@ -7,327 +7,463 @@
  * See the LICENSE file in the project root for full license information.
  */
 import { DiagnosticReporter } from "../../error/diagnosticReporter.ts";
-import { TypesNative } from "../values.ts";
 import { Keywords, Loc, NativeValue, Token, TokenType } from "./token.ts";
 
 export class Lexer {
   public source: string;
   private file: string;
-  protected line: number = 1;
-  protected offset: number = 0; // Offset global
-  protected lineOffset: number = 0; // Offset relative to current line
-  protected start: number = 0;
-  protected tokens: Token[] = [];
-  private static SINGLE_CHAR_TOKENS: { [key: string]: TokenType } = {
-    "+": TokenType.PLUS,
-    "-": TokenType.MINUS,
-    "*": TokenType.ASTERISK,
-    "/": TokenType.SLASH,
-    ">": TokenType.GREATER_THAN,
-    "<": TokenType.LESS_THAN,
-    ",": TokenType.COMMA,
-    ";": TokenType.SEMICOLON,
-    ":": TokenType.COLON,
-    "(": TokenType.LPAREN,
-    ")": TokenType.RPAREN,
-    "{": TokenType.LBRACE,
-    "}": TokenType.RBRACE,
-    ".": TokenType.DOT,
-    "%": TokenType.PERCENT,
-    "|": TokenType.PIPE,
-    "=": TokenType.EQUALS,
-    "[": TokenType.LBRACKET,
-    "]": TokenType.RBRACKET,
-    "#": TokenType.C_DIRECTIVE,
-    "!": TokenType.BANG,
-    "&": TokenType.AMPERSAND,
-  };
-  private static MULTI_CHAR_TOKENS: { [key: string]: TokenType } = {
-    "++": TokenType.INCREMENT,
-    "--": TokenType.DECREMENT,
-    "**": TokenType.EXPONENTIATION,
-    "%%": TokenType.REMAINDER,
-    "==": TokenType.EQUALS_EQUALS,
-    ">=": TokenType.GREATER_THAN_OR_EQUALS,
-    "<=": TokenType.LESS_THAN_OR_EQUALS,
-    "&&": TokenType.AND,
-    "||": TokenType.OR,
-    "!=": TokenType.NOT_EQUALS,
-    "..": TokenType.RANGE,
-    "->": TokenType.ARROW,
-  };
+  private readonly dir: string;
+  private readonly reporter: DiagnosticReporter;
+
+  private line: number = 1;
+  private offset: number = 0;
+  private lineOffset: number = 0;
+  private start: number = 0;
+  private tokens: Token[] = [];
+
+  private static readonly SINGLE_CHAR_TOKENS = new Map<string, TokenType>([
+    ["+", TokenType.PLUS],
+    ["-", TokenType.MINUS],
+    ["*", TokenType.ASTERISK],
+    ["/", TokenType.SLASH],
+    [">", TokenType.GREATER_THAN],
+    ["<", TokenType.LESS_THAN],
+    [",", TokenType.COMMA],
+    [";", TokenType.SEMICOLON],
+    [":", TokenType.COLON],
+    ["(", TokenType.LPAREN],
+    [")", TokenType.RPAREN],
+    ["{", TokenType.LBRACE],
+    ["}", TokenType.RBRACE],
+    [".", TokenType.DOT],
+    ["%", TokenType.PERCENT],
+    ["|", TokenType.PIPE],
+    ["=", TokenType.EQUALS],
+    ["[", TokenType.LBRACKET],
+    ["]", TokenType.RBRACKET],
+    ["#", TokenType.C_DIRECTIVE],
+    ["!", TokenType.BANG],
+    ["&", TokenType.AMPERSAND],
+  ]);
+
+  private static readonly MULTI_CHAR_TOKENS = new Map<string, TokenType>([
+    ["++", TokenType.INCREMENT],
+    ["--", TokenType.DECREMENT],
+    ["**", TokenType.EXPONENTIATION],
+    ["%%", TokenType.REMAINDER],
+    ["==", TokenType.EQUALS_EQUALS],
+    [">=", TokenType.GREATER_THAN_OR_EQUALS],
+    ["<=", TokenType.LESS_THAN_OR_EQUALS],
+    ["&&", TokenType.AND],
+    ["||", TokenType.OR],
+    ["!=", TokenType.NOT_EQUALS],
+    ["..", TokenType.RANGE],
+    ["->", TokenType.ARROW],
+  ]);
+
+  // Character type lookup tables for performance
+  private static readonly ALPHA_CHARS = new Set(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_",
+  );
+  private static readonly DIGIT_CHARS = new Set("0123456789");
+  private static readonly HEX_CHARS = new Set("0123456789abcdefABCDEF");
+  private static readonly OCTAL_CHARS = new Set("01234567");
+  private static readonly BINARY_CHARS = new Set("01");
+  private static readonly WHITESPACE_CHARS = new Set(" \t\r");
+
+  // Cached line splits for better error reporting
+  private lineCache?: string[];
 
   public constructor(
     file: string,
     source: string,
-    private readonly dir: string,
-    private readonly reporter: DiagnosticReporter,
+    dir: string,
+    reporter: DiagnosticReporter,
   ) {
     this.file = file;
     this.source = source;
+    this.dir = dir;
+    this.reporter = reporter;
   }
 
   public tokenize(ignoreNewLine: boolean = false): Token[] | null {
     try {
-      while (this.offset < this.source.length) {
-        this.start = this.offset - this.lineOffset; // Sets start to local offset
+      const sourceLength = this.source.length;
+
+      while (this.offset < sourceLength) {
+        this.start = this.offset - this.lineOffset;
         const char = this.source[this.offset];
 
-        if (char === "\n" && !ignoreNewLine) {
-          this.line++;
-          this.offset++;
-          this.lineOffset = this.offset;
-          continue;
-        }
-
-        if (char === " " || char === "\t" || char === "\r") {
-          this.offset++;
-          continue;
-        }
-
-        // Handle comments
-        if (char === "/") {
-          if (this.offset + 1 < this.source.length) {
-            const nextChar = this.source[this.offset + 1];
-            if (nextChar === "/" || nextChar === "*") {
-              this.lexing_comment();
-              continue;
-            }
+        if (char === "\n") {
+          if (!ignoreNewLine) {
+            this.line++;
+            this.offset++;
+            this.lineOffset = this.offset;
+            continue;
           }
+          this.offset++;
+          continue;
         }
 
-        // Check for multi-character tokens
-        if (this.offset + 1 < this.source.length) {
-          const multiChar = char + this.source[this.offset + 1];
-          const multiTokenType = Lexer.MULTI_CHAR_TOKENS[multiChar];
+        if (Lexer.WHITESPACE_CHARS.has(char)) {
+          this.offset++;
+          continue;
+        }
 
-          if (multiTokenType) {
-            this.createToken(multiTokenType, multiChar, 2);
+        // Handle comments (optimized check)
+        if (char === "/" && this.offset + 1 < sourceLength) {
+          const nextChar = this.source[this.offset + 1];
+          if (nextChar === "/" || nextChar === "*") {
+            if (!this.lexComment()) return null;
             continue;
           }
         }
 
-        // Check for single-character tokens
-        const singleTokenType = Lexer.SINGLE_CHAR_TOKENS[char];
+        // Check multi-character tokens first (more specific)
+        if (this.offset + 1 < sourceLength) {
+          const twoChar = this.source.substr(this.offset, 2);
+          const multiTokenType = Lexer.MULTI_CHAR_TOKENS.get(twoChar);
+
+          if (multiTokenType) {
+            this.createToken(multiTokenType, twoChar, 2);
+            continue;
+          }
+        }
+
+        // Check single-character tokens
+        const singleTokenType = Lexer.SINGLE_CHAR_TOKENS.get(char);
         if (singleTokenType) {
           this.createToken(singleTokenType, char, 1);
           continue;
         }
 
-        // Handle strings
+        // Handle string literals
         if (char === '"') {
-          this.lexing_string();
+          if (!this.lexString()) return null;
           continue;
         }
 
         // Handle numbers
-        if (this.isDigit(char)) {
-          this.lexing_digit();
+        if (Lexer.DIGIT_CHARS.has(char)) {
+          this.lexNumber();
           continue;
         }
 
         // Handle identifiers and keywords
-        if (this.isAlpha(char) || char === "_") {
-          this.lexing_alphanumeric();
+        if (Lexer.ALPHA_CHARS.has(char)) {
+          this.lexIdentifier();
           continue;
         }
 
         // Handle unexpected characters
-        this.reporter.addError(
-          this.makeLocation(char as TypesNative),
-          `Unexpected token "${char}"`,
-          [
-            this.reporter.makeSuggestion(
-              "Remove the character and see if the error is resolved.",
-              this.getLineText(this.line).replace(char, ""),
-            ),
-          ],
-        );
-        this.offset++; // Skip the problematic character
+        this.reportUnexpectedChar(char);
+        this.offset++;
       }
-    } catch (_error: unknown) {
+
+      this.createToken(TokenType.EOF, "\0", 0);
+      return this.tokens;
+    } catch (_error) {
+      console.log(_error);
+      // Error already reported by individual lex methods
       return null;
     }
-
-    this.createToken(TokenType.EOF, "\0", 0);
-    return this.tokens;
   }
 
-  private lexing_alphanumeric(): void {
-    let id = "";
+  private lexIdentifier(): void {
+    const startOffset = this.offset;
 
-    while (
-      this.offset < this.source.length &&
-      (this.isAlpha(this.source[this.offset]) ||
-        this.isDigit(this.source[this.offset]) ||
-        this.source[this.offset] === "_")
-    ) {
-      id += this.source[this.offset];
+    while (this.offset < this.source.length) {
+      const char = this.source[this.offset];
+      if (!Lexer.ALPHA_CHARS.has(char) && !Lexer.DIGIT_CHARS.has(char)) {
+        break;
+      }
       this.offset++;
     }
 
-    // Check if it's a keyword
-    if (Keywords[id] !== undefined) {
-      const token: Token = {
-        kind: Keywords[id],
-        value: id,
-        loc: this.getLocation(this.start, this.start + id.length),
-      };
-      this.tokens.push(token);
-    } else {
-      const token: Token = {
-        kind: TokenType.IDENTIFIER,
-        value: id,
-        loc: this.getLocation(this.start, this.start + id.length),
-      };
-      this.tokens.push(token);
-    }
+    const identifier = this.source.substring(startOffset, this.offset);
+    const tokenType = Keywords[identifier] ?? TokenType.IDENTIFIER;
+
+    this.tokens.push({
+      kind: tokenType,
+      value: identifier,
+      loc: this.getLocation(this.start, this.start + identifier.length),
+    });
   }
 
-  private lexing_digit(): void {
-    let number = this.lexing_basic_num();
+  private lexNumber(): void {
     const startPos = this.start;
 
+    // Handle special number prefixes (0x, 0o, 0b)
     if (
-      this.source[this.offset] === "." &&
-      this.source[this.offset + 1] === "." &&
-      this.offset <= this.source.length
+      this.source[this.offset] === "0" && this.offset + 1 < this.source.length
     ) {
-      this.createToken(TokenType.INT, Number(number), 0);
+      const prefix = this.source[this.offset + 1].toLowerCase();
+
+      // Hexadecimal (0x or 0X)
+      if (prefix === "x") {
+        this.lexHexadecimal(startPos);
+        return;
+      }
+
+      // Octal (0o or 0O)
+      if (prefix === "o") {
+        this.lexOctal(startPos);
+        return;
+      }
+
+      // Binary (0b or 0B)
+      if (prefix === "b") {
+        this.lexBinaryWithPrefix(startPos);
+        return;
+      }
+    }
+
+    let number = this.consumeDigits();
+
+    // Handle range operator (e.g., 123..456)
+    if (this.source.substring(this.offset, 2) === "..") {
+      this.createTokenWithLocation(
+        TokenType.INT,
+        parseInt(number, 10),
+        startPos,
+        number.length,
+      );
       this.createToken(TokenType.RANGE, "..", 2);
       return;
     }
 
-    // Check if it's a float
+    // Handle floating point numbers
     if (this.offset < this.source.length && this.source[this.offset] === ".") {
-      number += this.source[this.offset];
+      const nextChar = this.source[this.offset + 1];
+      if (Lexer.DIGIT_CHARS.has(nextChar)) {
+        number += ".";
+        this.offset++;
+        number += this.consumeDigits();
 
+        this.createTokenWithLocation(
+          TokenType.FLOAT,
+          parseFloat(number),
+          startPos,
+          number.length,
+        );
+        return;
+      }
+    }
+
+    // Handle binary literals with suffix (e.g., 101b)
+    if (
+      this.offset < this.source.length &&
+      this.source[this.offset].toLowerCase() === "b"
+    ) {
       this.offset++;
-      number += this.lexing_basic_num();
+      const binaryValue = number + "b";
 
-      const token: Token = {
-        kind: TokenType.FLOAT,
-        value: parseFloat(number),
-        loc: this.getLocation(startPos, startPos + number.length),
-      };
-      this.tokens.push(token);
+      this.createTokenWithLocation(
+        TokenType.INT,
+        parseInt(binaryValue, 2),
+        startPos,
+        binaryValue.length,
+      );
       return;
     }
 
-    // Check if it's a binary
-    if (this.offset < this.source.length && this.source[this.offset] === "b") {
-      number += this.source[this.offset];
-      this.offset++;
-      number += this.lexing_basic_num();
-
-      const token: Token = {
-        kind: TokenType.BINARY,
-        value: number,
-        loc: this.getLocation(startPos, startPos + number.length),
-      };
-      this.tokens.push(token);
-      return;
-    }
-
-    const token: Token = {
-      kind: TokenType.INT,
-      value: parseInt(number),
-      loc: this.getLocation(startPos, startPos + number.length),
-    };
-    this.tokens.push(token);
+    this.createTokenWithLocation(
+      TokenType.INT,
+      parseInt(number, 10),
+      startPos,
+      number.length,
+    );
   }
 
-  private lexing_basic_num(): string {
-    let num = "";
+  private consumeDigits(): string {
+    const start = this.offset;
     while (
       this.offset < this.source.length &&
-      this.isDigit(this.source[this.offset])
+      Lexer.DIGIT_CHARS.has(this.source[this.offset])
     ) {
-      num += this.source[this.offset];
       this.offset++;
     }
-    return num;
+    return this.source.substring(start, this.offset);
   }
 
-  private lexing_string(): void {
-    let value = "";
+  private consumeHexDigits(): string {
+    const start = this.offset;
+    while (
+      this.offset < this.source.length &&
+      Lexer.HEX_CHARS.has(this.source[this.offset])
+    ) {
+      this.offset++;
+    }
+    return this.source.substring(start, this.offset);
+  }
+
+  private consumeOctalDigits(): string {
+    const start = this.offset;
+    while (
+      this.offset < this.source.length &&
+      Lexer.OCTAL_CHARS.has(this.source[this.offset])
+    ) {
+      this.offset++;
+    }
+    return this.source.substring(start, this.offset);
+  }
+
+  private consumeBinaryDigits(): string {
+    const start = this.offset;
+    while (
+      this.offset < this.source.length &&
+      Lexer.BINARY_CHARS.has(this.source[this.offset])
+    ) {
+      this.offset++;
+    }
+    return this.source.substring(start, this.offset);
+  }
+
+  private lexHexadecimal(startPos: number): void {
+    this.offset += 2; // Skip "0x" or "0X"
+    const hexDigits = this.consumeHexDigits();
+
+    if (hexDigits.length === 0) {
+      this.reportError(
+        this.getLocation(startPos, this.offset),
+        "Invalid hexadecimal number: missing digits after '0x'",
+        "Add hexadecimal digits (0-9, a-f, A-F) after '0x'.",
+      );
+      throw new Error("Invalid hexadecimal number: missing digits after '0x'");
+    }
+
+    const fullHex = "0x" + hexDigits;
+    const value = parseInt(hexDigits, 16);
+
+    this.createTokenWithLocation(
+      TokenType.INT,
+      value,
+      startPos,
+      fullHex.length,
+    );
+  }
+
+  private lexOctal(startPos: number): void {
+    this.offset += 2; // Skip "0o" or "0O"
+    const octalDigits = this.consumeOctalDigits();
+
+    if (octalDigits.length === 0) {
+      this.reportError(
+        this.getLocation(startPos, this.offset),
+        "Invalid octal number: missing digits after '0o'",
+        "Add octal digits (0-7) after '0o'.",
+      );
+      throw new Error("Invalid octal number: missing digits after '0o'");
+    }
+
+    const fullOctal = "0o" + octalDigits;
+    const value = parseInt(octalDigits, 8);
+
+    this.createTokenWithLocation(
+      TokenType.INT,
+      value,
+      startPos,
+      fullOctal.length,
+    );
+  }
+
+  private lexBinaryWithPrefix(startPos: number): void {
+    this.offset += 2; // Skip "0b" or "0B"
+    const binaryDigits = this.consumeBinaryDigits();
+
+    if (binaryDigits.length === 0) {
+      this.reportError(
+        this.getLocation(startPos, this.offset),
+        "Invalid binary number: missing digits after '0b'",
+        "Add binary digits (0-1) after '0b'.",
+      );
+      throw new Error("Invalid binary number: missing digits after '0b'");
+    }
+
+    const fullBinary = "0b" + binaryDigits;
+    const value = parseInt(binaryDigits, 2);
+
+    this.createTokenWithLocation(
+      TokenType.INT,
+      value,
+      startPos,
+      fullBinary.length,
+    );
+  }
+
+  private lexString(): boolean {
     const startPos = this.start;
+    let value = "";
     this.offset++; // Skip opening quote
 
     while (
-      this.offset < this.source.length &&
-      this.source[this.offset] !== '"'
+      this.offset < this.source.length && this.source[this.offset] !== '"'
     ) {
-      if (this.source[this.offset] === "\n") {
-        this.reporter.addError(
+      const char = this.source[this.offset];
+
+      if (char === "\n") {
+        this.reportError(
           this.getLocation(startPos, this.start + value.length + 1),
           "String literal contains unescaped line break",
-          [
-            this.reporter.makeSuggestion(
-              "Close the string before the line break or use an escaped newline.",
-            ),
-          ],
+          "Close the string before the line break or use an escaped newline.",
         );
-        throw new Error("String not closed");
+        throw new Error("String literal contains unescaped line break");
       }
 
       // Handle escape sequences
-      if (this.source[this.offset] === "\\") {
+      if (char === "\\") {
         this.offset++;
-        if (this.offset >= this.source.length) {
-          break;
-        }
+        if (this.offset >= this.source.length) break;
 
-        switch (this.source[this.offset]) {
-          case "n":
-            value += "\n";
-            break;
-          case "t":
-            value += "\t";
-            break;
-          case "r":
-            value += "\r";
-            break;
-          case "\\":
-            value += "\\";
-            break;
-          case '"':
-            value += '"';
-            break;
-          default:
-            value += this.source[this.offset];
-        }
+        value += this.getEscapedChar(this.source[this.offset]);
       } else {
-        value += this.source[this.offset];
+        value += char;
       }
 
       this.offset++;
     }
 
+    // Check for unclosed string
     if (this.offset >= this.source.length || this.source[this.offset] !== '"') {
-      this.reporter.addError(
+      this.reportError(
         this.getLocation(startPos, this.start + value.length + 1),
         "String not closed",
-        [
-          this.reporter.makeSuggestion(
-            "Add '\"' at the end of the desired string.",
-          ),
-        ],
+        "Add '\"' at the end of the desired string.",
       );
       throw new Error("String not closed");
     }
 
     this.offset++; // Skip closing quote
 
-    const token: Token = {
+    this.tokens.push({
       kind: TokenType.STRING,
       value: value,
-      loc: this.getLocation(startPos, this.start + value.length + 2),
-    };
-    this.tokens.push(token);
+      loc: this.getLocation(startPos, startPos + value.length + 2),
+    });
+
+    return true;
   }
 
-  private lexing_comment(): void {
+  private getEscapedChar(char: string): string {
+    switch (char) {
+      case "n":
+        return "\n";
+      case "t":
+        return "\t";
+      case "r":
+        return "\r";
+      case "\\":
+        return "\\";
+      case '"':
+        return '"';
+      case "0":
+        return "\0";
+      default:
+        return char;
+    }
+  }
+
+  private lexComment(): boolean {
     const startPos = this.start;
     const startLine = this.line;
     this.offset++; // Skip first '/'
@@ -336,65 +472,83 @@ export class Lexer {
       // Single-line comment
       this.offset++;
       while (
-        this.offset < this.source.length &&
-        this.source[this.offset] !== "\n"
+        this.offset < this.source.length && this.source[this.offset] !== "\n"
       ) {
         this.offset++;
       }
-      return;
+      return true;
     }
 
     if (this.source[this.offset] === "*") {
       // Multi-line block comment
       this.offset++;
-      while (
-        this.offset + 1 < this.source.length &&
-        !(this.source[this.offset] === "*" &&
-          this.source[this.offset + 1] === "/")
-      ) {
+
+      while (this.offset + 1 < this.source.length) {
+        if (
+          this.source[this.offset] === "*" &&
+          this.source[this.offset + 1] === "/"
+        ) {
+          this.offset += 2;
+          return true;
+        }
+
         if (this.source[this.offset] === "\n") {
           this.line++;
           this.lineOffset = this.offset + 1;
         }
+
         this.offset++;
       }
 
-      if (this.offset + 1 < this.source.length) {
-        this.offset += 2; // Skip closing "*/"
-      } else {
-        this.reporter.addError(
-          this.getLocation(startPos, startPos + 2, startLine),
-          "Unclosed block comment",
-          [
-            this.reporter.makeSuggestion(
-              "Close the comment block with '*/'.",
-            ),
-          ],
-        );
-        throw new Error("Unclosed block comment");
-      }
-      return;
+      // Unclosed block comment
+      this.reportError(
+        this.getLocation(startPos, startPos + 2, startLine),
+        "Unclosed block comment",
+        "Close the comment block with '*/'.",
+      );
+      throw new Error("Unclosed block comment");
     }
 
-    // If we reach here, it was just a division operator
-    this.offset--; // Go back to the '/'
+    // Not a comment, backtrack
+    this.offset--;
     this.createToken(TokenType.SLASH, "/", 1);
+    return true;
   }
 
-  private isAlpha(char: string): boolean {
-    return /^[a-zA-Z]$/.test(char);
+  private createToken(
+    kind: TokenType,
+    value: NativeValue,
+    skipChars: number = 1,
+  ): Token {
+    const valueLength = typeof value === "string"
+      ? value.length
+      : String(value).length;
+    const token: Token = {
+      kind,
+      value,
+      loc: this.getLocation(this.start, this.start + valueLength),
+    };
+
+    this.tokens.push(token);
+    this.offset += skipChars;
+    return token;
   }
 
-  private isDigit(char: string): boolean {
-    return /^[0-9]$/.test(char);
-  }
-
-  private isAlphaNumeric(char: string): boolean {
-    return this.isAlpha(char) || this.isDigit(char) || char === "_";
+  private createTokenWithLocation(
+    kind: TokenType,
+    value: NativeValue,
+    startPos: number,
+    length: number,
+  ): void {
+    this.tokens.push({
+      kind,
+      value,
+      loc: this.getLocation(startPos, startPos + length),
+    });
   }
 
   private getLocation(start: number, end: number, line?: number): Loc {
-    const currentLine = line !== undefined ? line : this.line;
+    const currentLine = line ?? this.line;
     return {
       file: this.file,
       line: currentLine,
@@ -405,30 +559,35 @@ export class Lexer {
     };
   }
 
-  private makeLocation(value: TypesNative, line?: number): Loc {
-    const valueLength = typeof value === "string"
-      ? value.length
-      : String(value).length;
-    return this.getLocation(this.start, this.start + valueLength, line);
-  }
-
-  private createToken(
-    kind: TokenType,
-    value: NativeValue,
-    skipChars: number = 1,
-  ): Token {
-    const token: Token = {
-      kind,
-      value,
-      loc: this.makeLocation(value as TypesNative),
-    };
-    this.tokens.push(token);
-    this.offset += skipChars;
-    return token;
-  }
-
   private getLineText(line: number): string {
-    const lines = this.source.split("\n");
-    return lines[line - 1] || "";
+    if (!this.lineCache) {
+      this.lineCache = this.source.split("\n");
+    }
+    return this.lineCache[line - 1] || "";
+  }
+
+  private reportError(
+    location: Loc,
+    message: string,
+    suggestion: string,
+  ): void {
+    this.reporter.addError(location, message, [
+      this.reporter.makeSuggestion(suggestion),
+    ]);
+    throw new Error(message);
+  }
+
+  private reportUnexpectedChar(char: string): void {
+    this.reporter.addError(
+      this.getLocation(this.start, this.start + 1),
+      `Unexpected token "${char}"`,
+      [
+        this.reporter.makeSuggestion(
+          "Remove the character and see if the error is resolved.",
+          this.getLineText(this.line).replace(char, ""),
+        ),
+      ],
+    );
+    throw new Error(`Unexpected token "${char}"`);
   }
 }
