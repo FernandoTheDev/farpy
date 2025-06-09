@@ -18,6 +18,15 @@ function defineModule(name: string): StdLibModuleBuilder {
   return new StdLibModuleBuilder(name);
 }
 
+function createCppModule(): StdLibModule {
+  return defineModule("test")
+    .defineFunction("test")
+    .returns(createTypeInfo("void"))
+    .withParams("string")
+    .done()
+    .build();
+}
+
 // Create IO module with fluent API
 function createIOModule(): StdLibModule {
   return defineModule("io")
@@ -257,5 +266,6 @@ export class StandardLibrary {
     this.registerModule(createTypesModule());
     this.registerModule(createStringModule());
     this.registerModule(createMemoryModule());
+    this.registerModule(createCppModule());
   }
 }

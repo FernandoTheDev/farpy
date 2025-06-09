@@ -51,7 +51,7 @@ export class Optimizer {
     for (const expr of ast.body!) {
       try {
         new_ast.body!.push(this.optimize(expr));
-      } catch (_error: any) {
+      } catch (_error: unknown) {
         // Ignore
       }
     }

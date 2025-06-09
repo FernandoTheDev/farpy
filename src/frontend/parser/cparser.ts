@@ -6,7 +6,6 @@
  * This software is licensed under the MIT License.
  * See the LICENSE file in the project root for full license information.
  */
-import { backTrace } from "jsr:@std/internal@^1.0.6/diff";
 import {
   createPointerType,
   createTypeInfo,
@@ -18,7 +17,7 @@ import { TypesNative } from "../values.ts";
 export interface FunctionArg {
   type: TypeInfo;
   name: string;
-  llvmType?: LLVMType;
+  llvmType?: LLVMType | string;
 }
 
 export interface Define {
@@ -51,8 +50,8 @@ export class CParser {
       const functions = this.extractFunctions();
 
       return { includes, defines, functions };
-    } catch (error: any) {
-      console.error(`Erro ao analisar o código: ${error.message}`);
+    } catch (error: unknown) {
+      console.error(`Erro ao analisar o código: ${error}`);
       return { includes: [], defines: [], functions: [] };
     }
   }

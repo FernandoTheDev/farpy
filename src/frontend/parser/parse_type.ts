@@ -42,9 +42,9 @@ export class ParseType {
     let typeInfo: TypeInfo;
 
     if (dimensions > 0) {
-      typeInfo = createArrayType(baseType, dimensions);
+      typeInfo = createArrayType(baseType as TypesNative, dimensions);
     } else {
-      typeInfo = createTypeInfo(baseType);
+      typeInfo = createTypeInfo(baseType as TypesNative);
     }
 
     if (pointerLevel > 0) {
@@ -71,7 +71,7 @@ export class ParseType {
     return pointerLevel;
   }
 
-  private parseBaseType(): TypesNative {
+  private parseBaseType(): TypesNative | string {
     const token = this.advance();
     return this.tokenValueToTypesNative(token);
   }
@@ -86,7 +86,7 @@ export class ParseType {
     return dimensions;
   }
 
-  private tokenValueToTypesNative(token: Token): TypesNative {
+  private tokenValueToTypesNative(token: Token): TypesNative | string {
     const value = token.value as string;
 
     switch (value) {
@@ -105,8 +105,10 @@ export class ParseType {
         return "string";
       case "bool":
         return "bool";
+      case "binary":
+        return "binary";
       default:
-        throw new Error("Tipo desconhecido:" + value);
+        return value;
     }
   }
 

@@ -30,19 +30,24 @@ export enum LLVMType {
 }
 
 export interface TypeInfo {
-  baseType: TypesNative;
+  baseType: TypesNative | string;
   isArray: boolean;
   dimensions: number;
   isPointer: boolean;
+  isStruct: boolean;
   pointerLevel: number;
 }
 
-export function createTypeInfo(baseType: TypesNative): TypeInfo {
+export function createTypeInfo(
+  baseType: TypesNative | string,
+  s: boolean = false,
+): TypeInfo {
   return {
     baseType,
     isArray: false,
     dimensions: 0,
     isPointer: false,
+    isStruct: s,
     pointerLevel: 0,
   };
 }
@@ -50,11 +55,13 @@ export function createTypeInfo(baseType: TypesNative): TypeInfo {
 export function createArrayType(
   baseType: TypesNative,
   dimensions: number = 1,
+  s: boolean = false,
 ): TypeInfo {
   return {
     baseType,
     isArray: true,
     dimensions,
+    isStruct: s,
     isPointer: false,
     pointerLevel: 0,
   };
@@ -63,6 +70,7 @@ export function createArrayType(
 export function createPointerType(
   baseType: TypeInfo,
   pointerLevel: number = 1,
+  s: boolean = false,
 ): TypeInfo {
   if (typeof baseType !== "string") {
     baseType.isPointer = true;
@@ -73,6 +81,7 @@ export function createPointerType(
   return {
     baseType,
     isArray: false,
+    isStruct: s,
     dimensions: 0,
     isPointer: true,
     pointerLevel,
@@ -121,12 +130,16 @@ export type NodeType =
   | "ForCStyleStatement"
   | "ArrowExpression"
   | "StructStatement"
+  | "StructExpr"
+  | "StructPAssignment"
   | "ExternStatement"
   | "WhileStatement"
   | "UnaryExpr"
   | "AddressOfExpr"
   | "DereferenceExpr"
-  | "CastExpr";
+  | "CastExpr"
+  | "PointerAssignment"
+  | "IndexAccess";
 
 export interface Stmt {
   kind: NodeType;
@@ -134,7 +147,7 @@ export interface Stmt {
   // deno-lint-ignore no-explicit-any
   value: any;
   loc: Loc;
-  llvmType?: LLVMType;
+  llvmType?: LLVMType | string; // Struct
 }
 
 export interface Expr extends Stmt {}
@@ -305,6 +318,12 @@ export function AST_ARRAY(
   } as ArrayLiteral;
 }
 
+export interface IndexAccess extends Expr {
+  kind: "IndexAccess";
+  index: Expr;
+  target: Identifier;
+}
+
 export interface CallExpr extends Expr {
   kind: "CallExpr";
   callee: Identifier;
@@ -322,7 +341,7 @@ export interface FunctionArgs {
   id: Identifier;
   type: TypeInfo;
   default?: Expr;
-  llvmType?: LLVMType;
+  llvmType?: LLVMType | string;
 }
 
 export interface FunctionDeclaration extends Stmt {
@@ -378,18 +397,41 @@ export interface ForCStyleStatement extends Stmt {
   block: Stmt[];
 }
 
+export type StructProperties = {
+  id: Identifier;
+  value?: Expr;
+  index?: number;
+  type: TypeInfo;
+  llvmType?: LLVMType | string;
+};
+
 export interface StructStatement extends Stmt {
   kind: "StructStatement";
   name: Identifier;
-  body: { id: Identifier; value: Expr; type: TypeInfo }[];
+  body: StructProperties[];
+}
+
+export interface StructExpr extends Stmt {
+  kind: "StructExpr";
+  name: Identifier;
+  body: StructProperties[];
 }
 
 // x->y
 export interface ArrowExpression extends Expr {
   kind: "ArrowExpression";
   from: Expr;
+  index?: number;
   to: Expr;
-  struct: Expr;
+  struct?: Expr;
+}
+
+export interface StructPAssignment extends Expr {
+  kind: "StructPAssignment";
+  from: Expr;
+  to: AssignmentDeclaration;
+  index?: number;
+  struct?: Expr;
 }
 
 export interface ExternStatement extends Stmt {
@@ -510,4 +552,12 @@ export function AST_CAST(type: TypeInfo, expr: Expr, loc: Loc): CastExpr {
     loc,
     value: null,
   };
+}
+
+export interface PointerAssignment extends Stmt {
+  kind: "PointerAssignment";
+  id: Identifier;
+  pointerLevel: number;
+  value: Expr;
+  loc: Loc;
 }

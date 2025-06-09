@@ -11,6 +11,7 @@ import { Lexer } from "../frontend/lexer/lexer.ts";
 import { Loc, Token } from "../frontend/lexer/token.ts";
 import {
   ArrayLiteral,
+  ArrowExpression,
   AssignmentDeclaration,
   CallExpr,
   CastExpr,
@@ -24,8 +25,12 @@ import {
   FunctionDeclaration,
   IfStatement,
   ImportStatement,
+  IndexAccess,
   LLVMType,
   ReturnStatement,
+  StructExpr,
+  StructPAssignment,
+  StructStatement,
   TypeInfo,
   typeInfoToString,
   UnaryExpr,
@@ -59,7 +64,7 @@ export interface TypeMapping {
 export interface SymbolInfo {
   id: string;
   sourceType: TypeInfo;
-  llvmType: LLVMType;
+  llvmType: LLVMType | string;
   mutable: boolean;
   initialized: boolean;
   loc: Loc;
@@ -72,12 +77,13 @@ export class Semantic {
   public availableFunctions: Map<string, StdLibFunction | Function> = new Map();
   public importedModules: Set<string> = new Set();
   public stdLibs: Map<string, StdLibModule> = new Map();
+  public structs: Map<string, StructStatement> = new Map();
   public identifiersUsed: Set<string> = new Set();
   private externalNodes: Stmt[] = [];
 
   private constructor(private readonly reporter: DiagnosticReporter) {
     this.pushScope();
-    this.typeChecker = getTypeChecker(reporter);
+    this.typeChecker = getTypeChecker(reporter, this);
     StandardLibrary.getInstance(reporter); // Initialize standard library
   }
 
@@ -100,8 +106,8 @@ export class Semantic {
     for (const node of program.body || []) {
       try {
         analyzedNodes.push(this.analyzeNode(node));
-      } catch (_error: any) {
-        console.log(_error);
+      } catch (_error: unknown) {
+        // console.log(_error);
         // Ignore
       }
     }
@@ -199,11 +205,27 @@ export class Semantic {
       case "CastExpr":
         analyzedNode = this.analyzeCastExpr(node as CastExpr);
         break;
+      case "StructStatement":
+        analyzedNode = this.analyzeStructStatement(node as StructStatement);
+        break;
+      case "StructExpr":
+        analyzedNode = this.analyzeStructExpr(node as StructExpr);
+        break;
+      case "StructPAssignment":
+        analyzedNode = this.analyzeStructPAssignment(node as StructPAssignment);
+        break;
+      case "ArrowExpression":
+        analyzedNode = this.analyzeArrowExpression(node as ArrowExpression);
+        break;
+      case "IndexAccess":
+        analyzedNode = this.analyzeIndexAccess(node as IndexAccess);
+        break;
       case "StringLiteral":
       case "IntLiteral":
       case "FloatLiteral":
       case "BinaryLiteral":
       case "NullLiteral":
+      case "BooleanLiteral":
         analyzedNode = {
           ...node,
           llvmType: this.typeChecker.mapToLLVMType(node.type.baseType),
@@ -225,6 +247,212 @@ export class Semantic {
     }
 
     return analyzedNode;
+  }
+
+  private analyzeIndexAccess(node: IndexAccess): IndexAccess {
+    const target = this.scopeStack[0].get(node.target.value);
+
+    if (
+      target?.sourceType.baseType == "string" && !target?.sourceType.isArray
+    ) {
+      node.type = target?.sourceType;
+      node.llvmType = target?.llvmType;
+    }
+
+    if (target?.sourceType.isArray) {
+      node.type.baseType = target?.sourceType.baseType;
+      node.llvmType = target?.llvmType;
+    }
+
+    node.index = this.analyzeNode(node.index);
+
+    return node;
+  }
+
+  private analyzeArrowExpression(node: ArrowExpression): ArrowExpression {
+    node.from = this.analyzeNode(node.from);
+    let stack = this.lookupSymbol(node.from.value);
+
+    if (!stack) {
+      // Error, var não existe
+      this.reporter.addError(
+        node.from.loc,
+        `Variable does not exists '${node.from.value}'.`,
+      );
+      throw new Error(
+        `Struct not exists '${node.from.value}'.`,
+      );
+    }
+
+    if (node.from.kind != "Identifier") {
+      // Erro, We can only use '->' in variables declared as Structs
+      this.reporter.addError(
+        node.from.loc,
+        `We can only use '->' in variables declared as Structs.`,
+      );
+      throw new Error(
+        `We can only use '->' in variables declared as Structs.`,
+      );
+    }
+
+    stack = stack as SymbolInfo;
+
+    if (!stack.sourceType.isStruct) {
+      this.reporter.addError(
+        node.from.loc,
+        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+      );
+      throw new Error(
+        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+      );
+    }
+
+    const struct = this.structs.get(stack.sourceType.baseType);
+
+    for (let i = 0; i < struct!.body.length; i++) {
+      if (node.to.value == struct!.body[i].id.value) {
+        node.to.type = struct!.body[i].type;
+        node.to.llvmType = struct!.body[i].llvmType;
+        node.index = struct!.body[i].index;
+      }
+    }
+
+    node.type = node.to.type;
+    node.llvmType = node.to.llvmType;
+
+    return node;
+  }
+
+  private analyzeStructPAssignment(node: StructPAssignment): StructPAssignment {
+    node.from = this.analyzeNode(node.from);
+    let stack = this.lookupSymbol(node.from.value);
+
+    if (!stack) {
+      // Error, var não existe
+      this.reporter.addError(
+        node.from.loc,
+        `Variable does not exists '${node.from.value}'.`,
+      );
+      throw new Error(
+        `Struct not exists '${node.from.value}'.`,
+      );
+    }
+
+    node.to.value = this.analyzeNode(node.to.value);
+
+    if (node.from.kind != "Identifier") {
+      // Erro, We can only use '->' in variables declared as Structs
+      this.reporter.addError(
+        node.from.loc,
+        `We can only use '->' in variables declared as Structs.`,
+      );
+      throw new Error(
+        `We can only use '->' in variables declared as Structs.`,
+      );
+    }
+
+    stack = stack as SymbolInfo;
+
+    if (!stack.sourceType.isStruct) {
+      this.reporter.addError(
+        node.from.loc,
+        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+      );
+      throw new Error(
+        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+      );
+    }
+
+    const struct = this.structs.get(stack.sourceType.baseType);
+
+    for (let i = 0; i < struct!.body.length; i++) {
+      if (node.to.id.value == struct!.body[i].id.value) {
+        node.to.id.type = struct!.body[i].type;
+        node.to.id.llvmType = struct!.body[i].llvmType;
+        node.index = struct!.body[i].index;
+      }
+    }
+
+    node.type = stack.sourceType;
+    node.llvmType = stack.llvmType;
+
+    return node;
+  }
+
+  private analyzeStructExpr(node: StructExpr): StructExpr {
+    let struct: StructStatement | undefined = this.structs.get(node.name.value);
+
+    if (!struct) {
+      this.reporter.addError(
+        node.name.loc,
+        `Struct not exists '${node.name.value}'.`,
+      );
+      throw new Error(
+        `Struct not exists '${node.name.value}'.`,
+      );
+    }
+
+    struct = struct as StructStatement;
+
+    // Pre analise
+    for (const propertie of node.body) {
+      propertie.llvmType = this.typeChecker.mapToLLVMType(
+        propertie.type.baseType,
+      );
+    }
+
+    if (struct.body.length != node.body.length) {
+      // The number of properties does not match the struct declaration, 'X' of 'Y'.
+      this.reporter.addError(
+        node.name.loc,
+        `The number of properties does not match the struct declaration, '${node.body.length}' of '${struct.body.length}'.`,
+      );
+      throw new Error(
+        `The number of properties does not match the struct declaration, '${node.body.length}' of '${struct.body.length}'.`,
+      );
+    }
+
+    for (let i = 0; i < struct.body.length; i++) {
+      if (struct.body[i].llvmType != node.body[i].llvmType) {
+        // A propriedade '${node.body[i].id.value}' deve ser do tipo '${struct.body[i].type.baseType}' mas recebeu '${node.body[i].type.baseType}'`.
+        const err_msg = `The property '${
+          node.body[i].id.value
+        }' should be of type '${struct.body[i].type.baseType}' but received '${
+          node.body[i].type.baseType
+        }'.`;
+        this.reporter.addError(
+          node.body[i].id.loc,
+          err_msg,
+        );
+        throw new Error(
+          err_msg,
+        );
+      }
+    }
+
+    return node;
+  }
+
+  private analyzeStructStatement(node: StructStatement): StructStatement {
+    if (this.structs.has(node.name.value)) {
+      this.reporter.addError(
+        node.name.loc,
+        `Struct has been defined '${node.name.value}'.`,
+      );
+      throw new Error(
+        `Struct has been defined '${node.name.value}'.`,
+      );
+    }
+
+    this.structs.set(node.name.value, node);
+
+    for (const propertie of node.body) {
+      propertie.llvmType = this.typeChecker.mapToLLVMType(
+        propertie.type.baseType,
+      );
+    }
+
+    return node;
   }
 
   private analyzeCastExpr(node: CastExpr): CastExpr {
@@ -395,7 +623,6 @@ export class Semantic {
       const newType = { ...node.operand.type };
       newType.pointerLevel = (newType.pointerLevel || 0) + 1;
       newType.isPointer = true;
-      newType.baseType = "null";
 
       node.type = newType;
       node.llvmType = LLVMType.PTR;
@@ -403,32 +630,6 @@ export class Semantic {
 
     return node;
   }
-
-  // private analyzeUnaryExpr(node: UnaryExpr): UnaryExpr {
-  //   node.operand = this.analyzeNode(node.operand) as Expr;
-
-  //   if (node.operator === "*") {
-  //     if (!this.typeChecker.isPointerType(node.operand.type)) {
-  //       this.reporter.addError(
-  //         node.loc,
-  //         `Cannot dereference non-pointer type '${
-  //           typeInfoToString(node.operand.type)
-  //         }'`,
-  //       );
-  //       throw new Error(
-  //         `Cannot dereference non-pointer type '${
-  //           typeInfoToString(node.operand.type)
-  //         }' at ${node.loc.line}:${node.loc.start}`,
-  //       );
-  //     }
-
-  //     node.type = node.operand.type;
-  //     node.llvmType = this.typeChecker.mapToLLVMType(node.type.baseType);
-  //   }
-
-  //   console.log(this.scopeStack[0].get(node.operand.value));
-  //   return node;
-  // }
 
   private analyzeWhileStatement(node: WhileStatement): WhileStatement {
     node.condition = this.analyzeNode(node.condition);
@@ -560,7 +761,7 @@ export class Semantic {
     if (symbol.llvmType != analyzedValue.llvmType) {
       this.reporter.addError(
         node.loc,
-        `The variable was initially ${symbol.sourceType}, but you passed a value of type ${analyzedValue.type}.`,
+        `The variable was initially ${symbol.sourceType.baseType}, but you passed a value of type ${analyzedValue.type.baseType}.`,
       );
       throw new Error(
         `The variable was initially ${symbol.sourceType}, but you passed a value of type ${analyzedValue.type}.`,
@@ -608,6 +809,11 @@ export class Semantic {
         throw new Error(
           `Parameter '${arg.id.value}' is already defined in function '${funcName}' at ${arg.id.loc.line}:${arg.id.loc.start}`,
         );
+      }
+
+      // Check if is struct
+      if (this.structs.has(arg.type.baseType)) {
+        arg.type.isStruct = true;
       }
 
       const llvmType = this.typeChecker.mapToLLVMType(arg.type.baseType);
@@ -814,28 +1020,6 @@ export class Semantic {
         continue;
       }
 
-      // if (
-      //   stmt.kind == "ImportStatement" &&
-      //   this.importedModules.has((stmt as ImportStatement).path.value)
-      // ) {
-      //   this.reporter.addError(
-      //     node.path.loc,
-      //     `Module '${
-      //       (stmt as ImportStatement).path.value
-      //     }' is already imported`,
-      //     [
-      //       this.reporter.makeSuggestion(
-      //         "Remove the import in the file you are importing, not the one being imported.",
-      //       ),
-      //     ],
-      //   );
-      //   throw new Error(
-      //     `Module '${
-      //       (stmt as ImportStatement).path.value
-      //     }' is already imported`,
-      //   );
-      // }
-
       this.externalNodes.push(stmt);
     }
 
@@ -901,7 +1085,7 @@ export class Semantic {
           node.arguments[i].loc,
           `Argument ${
             i + 1
-          } of function '${funcName}' expects type '${paramType}', but got '${argType}'`,
+          } of function '${funcName}' expects type '${paramType}', but got '${argType.baseType}'`,
         );
         throw new Error(
           `Argument ${
@@ -914,21 +1098,6 @@ export class Semantic {
         this.typeChecker.areTypesCompatible(argType.baseType, paramType) &&
         argType.baseType !== paramType
       ) {
-        if (!node.arguments[i].kind.includes("Literal")) {
-          // this.reporter.addError(
-          //   node.arguments[i].loc,
-          //   `You passed an argument of type ${argType} but a ${paramType} was expected.`,
-          //   [
-          //     this.reporter.makeSuggestion(
-          //       "Do type conversion, use the 'types' library",
-          //     ),
-          //   ],
-          // );
-          // new Error(
-          //   `You passed an argument of type ${argType} but a ${paramType} was expected.`,
-          // );
-        }
-
         node.arguments[i].llvmType = this.typeChecker.mapToLLVMType(paramType);
         node.arguments[i].type.baseType = paramType;
       }
