@@ -26,6 +26,7 @@ import {
   CallExpr,
   CastExpr,
   createTypeInfo,
+  DecrementExpr,
   ElifStatement,
   ElseStatement,
   Expr,
@@ -37,6 +38,7 @@ import {
   Identifier,
   IfStatement,
   ImportStatement,
+  IncrementExpr,
   IndexAccess,
   NullLiteral,
   PointerAssignment as _PointerAssignment,
@@ -47,6 +49,7 @@ import {
   StructPAssignment,
   StructProperties,
   StructStatement,
+  TernaryExpr,
   TypeInfo,
   VariableDeclaration,
   WhileStatement,
@@ -60,15 +63,16 @@ type InfixParseFn = (left: Expr) => Expr;
 enum Precedence {
   LOWEST = 1,
   ASSIGN = 2, // =
-  OR = 3, // ||
-  AND = 4, // &&
-  EQUALS = 5, // == !=
-  COMPARISON = 6, // < > <= >=
-  SUM = 7, // + -
-  PRODUCT = 8, // * / %
-  EXPONENT = 9, // **
-  PREFIX = 10, // -x !x
-  CALL = 11, // myFunction(x)
+  TERNARY = 3, // ? :
+  OR = 4, // ||
+  AND = 5, // &&
+  EQUALS = 6, // == !=
+  COMPARISON = 7, // < > <= >=
+  SUM = 8, // + -
+  PRODUCT = 9, // * / %
+  EXPONENT = 10, // **
+  PREFIX = 11, // -x !x
+  CALL = 12, // myFunction(x)
 }
 
 export class Parser {
@@ -241,6 +245,10 @@ export class Parser {
       }
       case TokenType.STRUCT:
         return this.parseStructStatement();
+      case TokenType.INCREMENT:
+        return this.parseIncrementExpr();
+      case TokenType.DECREMENT:
+        return this.parseDecrementExpr();
       default:
         this.reporter.addError(
           token.loc,
@@ -250,28 +258,94 @@ export class Parser {
     }
   }
 
+  private parseTernaryInfix(condition: Expr): TernaryExpr {
+    this.advance(); // skip '?'
+    const primary = this.parseExpression(Precedence.LOWEST);
+    this.consume(TokenType.COLON, "Expected ':' in ternary expression.");
+    const secondary = this.parseExpression(Precedence.TERNARY);
+    const resultType = this.inferTernaryType(primary, secondary);
+
+    return {
+      kind: "TernaryExpr",
+      type: resultType,
+      condition: condition,
+      primary: primary,
+      secondary: secondary,
+      loc: this.makeLoc(condition.loc, secondary.loc),
+    } as TernaryExpr;
+  }
+
+  private inferTernaryType(primary: Expr, secondary: Expr): TypeInfo {
+    if (primary.type.baseType === secondary.type.baseType) {
+      return primary.type;
+    } else if (
+      primary.type.baseType === "string" || secondary.type.baseType === "string"
+    ) {
+      return createTypeInfo("string");
+    } else if (
+      primary.type.baseType === "float" || secondary.type.baseType === "float"
+    ) {
+      return createTypeInfo("float");
+    } else {
+      return createTypeInfo("int");
+    }
+  }
+
+  private parseIncrementExpr(): IncrementExpr {
+    const previous = this.previous(2);
+
+    if (previous.kind != TokenType.IDENTIFIER) {
+      // Error
+    }
+
+    const value = AST_IDENTIFIER(String(previous.value), previous.loc);
+    this.match(TokenType.INCREMENT);
+    return {
+      kind: "IncrementExpr",
+      value: value,
+    } as IncrementExpr;
+  }
+
+  private parseDecrementExpr(): DecrementExpr {
+    const previous = this.previous(2);
+
+    if (previous.kind != TokenType.IDENTIFIER) {
+      // Error
+    }
+
+    const value = AST_IDENTIFIER(String(previous.value), previous.loc);
+    this.match(TokenType.INCREMENT);
+    return {
+      kind: "DecrementExpr",
+      value: value,
+    } as DecrementExpr;
+  }
+
   private parseArrowExpression(): ArrowExpression | StructPAssignment {
     const name = this.previous();
     this.consume(TokenType.DOT, "Expected '.' for struct access propertie.");
-    const propertie = this.parseExpression(Precedence.LOWEST);
+    const propertie = this.advance();
 
-    if (propertie.kind == "Identifier") {
-      return {
-        kind: "ArrowExpression",
-        from: AST_IDENTIFIER(String(name.value), name.loc),
-        to: propertie,
-        type: createTypeInfo("void"),
-        value: null,
-        loc: this.makeLoc(name.loc, propertie.loc),
-      } as ArrowExpression;
-    }
+    if (propertie.kind == TokenType.IDENTIFIER) {
+      if (((this.next()) as Token).kind != TokenType.EQUALS) {
+        return {
+          kind: "ArrowExpression",
+          from: AST_IDENTIFIER(String(name.value), name.loc),
+          to: AST_IDENTIFIER(String(propertie.value), propertie.loc),
+          type: createTypeInfo("id"),
+          value: null,
+          loc: this.makeLoc(name.loc, propertie.loc),
+        } as ArrowExpression;
+      }
 
-    if (propertie.kind == "AssignmentDeclaration") {
+      this.match(TokenType.EQUALS);
+      const expr = this.parseExpression(Precedence.LOWEST);
+
       return {
         kind: "StructPAssignment",
         from: AST_IDENTIFIER(String(name.value), name.loc),
-        to: propertie,
-        type: createTypeInfo("void"),
+        to: expr,
+        type: createTypeInfo("id"),
         value: null,
         loc: this.makeLoc(name.loc, propertie.loc),
       } as StructPAssignment;
@@ -753,29 +827,35 @@ export class Parser {
   private parseIfStatement(miaKhalifa: boolean = true): IfStatement {
     const start = this.previous();
     const condition = this.parseExpression(Precedence.LOWEST);
-
-    this.consume(TokenType.LBRACE, "Expected '{' after condition.");
     let returnStmt: ReturnStatement | NullLiteral = AST_NULL({} as Loc);
-
     const body: Stmt[] = [];
-    // @ts-ignore: Dont have error
     let bodySecond: ElifStatement | ElseStatement | null = null;
+    let end: Token | Stmt;
 
-    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
-      if (this.peek().kind == TokenType.RETURN) {
-        returnStmt = this.parseExpression(
-          Precedence.LOWEST,
-        ) as ReturnStatement;
-        body.push(returnStmt);
-        break;
+    if (this.peek().kind != TokenType.LBRACE) {
+      // Unique Stmt
+      const stmt = this.parseExpression(Precedence.LOWEST);
+      body.push(stmt);
+      end = stmt;
+    } else {
+      this.consume(TokenType.LBRACE, "Expected '{' after condition.");
+      // @ts-ignore: Dont have error
+
+      while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+        if (this.peek().kind == TokenType.RETURN) {
+          returnStmt = this.parseExpression(
+            Precedence.LOWEST,
+          ) as ReturnStatement;
+          body.push(returnStmt);
+          break;
+        }
+        body.push(this.parseExpression(Precedence.LOWEST));
       }
-      body.push(this.parseExpression(Precedence.LOWEST));
+      end = this.consume(
+        TokenType.RBRACE,
+        "Expect '}' after function body.",
+      );
     }
-
-    const end = this.consume(
-      TokenType.RBRACE,
-      "Expect '}' after function body.",
-    );
 
     if (this.match(TokenType.ELIF)) {
       // @ts-ignore: Dont have error
@@ -799,27 +879,34 @@ export class Parser {
 
   private parseElseStatement(): ElseStatement {
     const start = this.previous();
-
-    this.consume(TokenType.LBRACE, "Expected '{' after 'else'.");
     let returnStmt: ReturnStatement | NullLiteral = AST_NULL({} as Loc);
-
     const body: Stmt[] = [];
+    let end: Stmt | Token;
 
-    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
-      if (this.peek().kind == TokenType.RETURN) {
-        returnStmt = this.parseExpression(
-          Precedence.LOWEST,
-        ) as ReturnStatement;
-        body.push(returnStmt);
-        break;
+    if (this.peek().kind != TokenType.LBRACE) {
+      // Unique Stmt
+      const stmt = this.parseExpression(Precedence.LOWEST);
+      body.push(stmt);
+      end = stmt;
+    } else {
+      this.consume(TokenType.LBRACE, "Expected '{' after 'else'.");
+
+      while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+        if (this.peek().kind == TokenType.RETURN) {
+          returnStmt = this.parseExpression(
+            Precedence.LOWEST,
+          ) as ReturnStatement;
+          body.push(returnStmt);
+          break;
+        }
+        body.push(this.parseExpression(Precedence.LOWEST));
       }
-      body.push(this.parseExpression(Precedence.LOWEST));
-    }
 
-    const end = this.consume(
-      TokenType.RBRACE,
-      "Expect '}' after function body.",
-    );
+      end = this.consume(
+        TokenType.RBRACE,
+        "Expect '}' after function body.",
+      );
+    }
 
     return {
       kind: "ElseStatement",
@@ -1047,6 +1134,8 @@ export class Parser {
       case TokenType.AND:
       case TokenType.OR:
         return this.parseBinaryInfix;
+      case TokenType.QUESTION:
+        return this.parseTernaryInfix;
       default:
         return undefined;
     }
@@ -1123,6 +1212,8 @@ export class Parser {
     switch (kind) {
       case TokenType.EQUALS:
         return Precedence.ASSIGN;
+      case TokenType.QUESTION:
+        return Precedence.TERNARY;
       case TokenType.OR:
         return Precedence.OR;
       case TokenType.AND:

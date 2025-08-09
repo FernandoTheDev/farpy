@@ -25,7 +25,7 @@ const ARG_CONFIG = {
   default: { "output": "a.out" },
 };
 
-const VERSION = "0.0.3";
+const VERSION = "0.0.4";
 
 const TARGET_HELP_MESSAGE = `Farpy Compiler - Target Architecture Help
 

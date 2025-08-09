@@ -31,6 +31,7 @@ import {
   StructExpr,
   StructPAssignment,
   StructStatement,
+  TernaryExpr,
   TypeInfo,
   typeInfoToString,
   UnaryExpr,
@@ -220,6 +221,9 @@ export class Semantic {
       case "IndexAccess":
         analyzedNode = this.analyzeIndexAccess(node as IndexAccess);
         break;
+      case "TernaryExpr":
+        analyzedNode = this.analyzeTernaryExpr(node as TernaryExpr);
+        break;
       case "StringLiteral":
       case "IntLiteral":
       case "FloatLiteral":
@@ -247,6 +251,14 @@ export class Semantic {
     }
 
     return analyzedNode;
+  }
+
+  private analyzeTernaryExpr(node: TernaryExpr): TernaryExpr {
+    node.condition = this.analyzeNode(node.condition);
+    node.primary = this.analyzeNode(node.primary);
+    node.secondary = this.analyzeNode(node.secondary);
+    node.llvmType = this.typeChecker.mapToLLVMType(node.type.baseType);
+    return node;
   }
 
   private analyzeIndexAccess(node: IndexAccess): IndexAccess {
@@ -285,25 +297,30 @@ export class Semantic {
     }
 
     if (node.from.kind != "Identifier") {
-      // Erro, We can only use '->' in variables declared as Structs
+      // Erro, We can only use '.' in variables declared as Structs
       this.reporter.addError(
         node.from.loc,
-        `We can only use '->' in variables declared as Structs.`,
+        `We can only use '.' in variables declared as Structs.`,
       );
       throw new Error(
-        `We can only use '->' in variables declared as Structs.`,
+        `We can only use '.' in variables declared as Structs.`,
       );
     }
 
     stack = stack as SymbolInfo;
 
+    // Security validation
+    if (this.structs.has(stack.sourceType.baseType)) {
+      stack.sourceType.isStruct = true;
+    }
+
     if (!stack.sourceType.isStruct) {
       this.reporter.addError(
         node.from.loc,
-        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+        `You are trying to use '.' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
       );
       throw new Error(
-        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+        `You are trying to use '.' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
       );
     }
 
@@ -341,13 +358,13 @@ export class Semantic {
     node.to.value = this.analyzeNode(node.to.value);
 
     if (node.from.kind != "Identifier") {
-      // Erro, We can only use '->' in variables declared as Structs
+      // Erro, We can only use '.' in variables declared as Structs
       this.reporter.addError(
         node.from.loc,
-        `We can only use '->' in variables declared as Structs.`,
+        `We can only use '.' in variables declared as Structs.`,
       );
       throw new Error(
-        `We can only use '->' in variables declared as Structs.`,
+        `We can only use '.' in variables declared as Structs.`,
       );
     }
 
@@ -356,10 +373,10 @@ export class Semantic {
     if (!stack.sourceType.isStruct) {
       this.reporter.addError(
         node.from.loc,
-        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+        `You are trying to use '.' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
       );
       throw new Error(
-        `You are trying to use '->' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
+        `You are trying to use '.' on a variable of type '${node.from.type.baseType}', it can only be used on structs.`,
       );
     }
 

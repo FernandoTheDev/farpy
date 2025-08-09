@@ -114,14 +114,18 @@ export class FarpyCompilerMain {
   }
 
   private validateFile(): boolean {
-    return typeof this.fileName === "string" && this.fileName.length > 0 &&
-      this.fileName.endsWith(".fp");
+    return (
+      typeof this.fileName === "string" &&
+      this.fileName.length > 0 &&
+      this.fileName.endsWith(".fp")
+    );
   }
 
   private checkErrorsAndWarnings(): boolean {
     if (this.reporter.hasWarnings() && !this.reporter.hasErrors()) {
       this.reporter.printDiagnostics();
       console.log(this.reporter.getSummary());
+      Deno.exit(-1);
     }
 
     if (this.reporter.hasErrors()) {
@@ -134,16 +138,18 @@ export class FarpyCompilerMain {
   }
 
   private runLexer(): Token[] | null {
-    const dir = Deno.cwd() + "/" +
-      this.fileName.substring(0, this.fileName.lastIndexOf("/")) + "/";
+    const dir =
+      Deno.cwd() +
+      "/" +
+      this.fileName.substring(0, this.fileName.lastIndexOf("/")) +
+      "/";
 
     const tokens = new Lexer(
       this.fileName,
       this.fileData,
       dir,
       this.reporter,
-    )
-      .tokenize();
+    ).tokenize();
 
     if (!this.checkErrorsAndWarnings()) return null;
 
@@ -160,10 +166,7 @@ export class FarpyCompilerMain {
 
   private handleAstJson(ast: Program): boolean {
     if (this.args["emit-ast"]) {
-      Deno.writeTextFileSync(
-        "ast.json",
-        JSON.stringify(ast, null, "\t"),
-      );
+      Deno.writeTextFileSync("ast.json", JSON.stringify(ast, null, "\t"));
       return true;
     }
     return false;
@@ -173,9 +176,7 @@ export class FarpyCompilerMain {
     ast: Program,
     semantic: Semantic,
   ): Program | null {
-    const analyzer = new DeadCodeAnalyzer(semantic, this.reporter).analyze(
-      ast,
-    );
+    const analyzer = new DeadCodeAnalyzer(semantic, this.reporter).analyze(ast);
 
     if (!this.checkErrorsAndWarnings()) return null;
 
@@ -250,11 +251,7 @@ export class FarpyCompilerMain {
         ast = this.runDeadCodeAnalyzer(ast!, semantic);
       }
 
-      const llvmIR = this.generateLLVMIR(
-        ast!,
-        semantic,
-        this.isDebug(),
-      );
+      const llvmIR = this.generateLLVMIR(ast!, semantic, this.isDebug());
 
       if (this.handleEmitIR()) {
         await Deno.writeFile(

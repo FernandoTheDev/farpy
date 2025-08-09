@@ -15,6 +15,7 @@ import {
   BinaryLiteral,
   CallExpr,
   CastExpr,
+  DecrementExpr,
   ElifStatement,
   Expr,
   ExternStatement,
@@ -23,6 +24,7 @@ import {
   FunctionDeclaration,
   Identifier,
   IfStatement,
+  IncrementExpr,
   IndexAccess,
   IntLiteral,
   LLVMType,
@@ -34,6 +36,7 @@ import {
   StructExpr,
   StructPAssignment,
   StructStatement,
+  TernaryExpr,
   TypeInfo,
   UnaryExpr,
   VariableDeclaration,
@@ -205,6 +208,8 @@ export class LLVMIRGenerator {
           entry,
           main,
         );
+      case "TernaryExpr":
+        return this.generateTernaryExpr(node as TernaryExpr, entry, main);
       case "ArrayLiteral":
         return this.generateArrayLiteral(node as ArrayLiteral, entry, main);
       case "StringLiteral":
@@ -229,11 +234,136 @@ export class LLVMIRGenerator {
         return this.makeReturnStatement(node as ReturnStatement, entry, main);
       case "IndexAccess":
         return this.generateIndexAccess(node as IndexAccess, entry, main);
+      case "IncrementExpr":
+        return this.generateIncrementExpr(node as IncrementExpr, entry, main);
+      case "DecrementExpr":
+        return this.generateDecrementExpr(node as DecrementExpr, entry, main);
       default:
         throw new Error(
           `Unsupported node kind for IR generation: ${node.kind}`,
         );
     }
+  }
+
+  private generateTernaryExpr(
+    node: TernaryExpr,
+    entry: LLVMBasicBlock,
+    main: LLVMFunction,
+  ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
+    // Avaliar a condição no bloco atual
+    const condition = this.generateNode(node.condition, main);
+    const conditionBlock = main.getCurrentBasicBlock();
+
+    // Converter a condição para booleano se necessário
+    const conditionBool = condition.type === "i1"
+      ? condition
+      : conditionBlock.icmpInst(
+        "ne",
+        condition,
+        this.makeIrValue("0", condition.type),
+      );
+
+    // Criar os blocos básicos
+    const trueBlock = main.createBasicBlock(
+      `ternary_true_${main.nextBlockId()}`,
+    );
+    const falseBlock = main.createBasicBlock(
+      `ternary_false_${main.nextBlockId()}`,
+    );
+    const endBlock = main.createBasicBlock(`ternary_end_${main.nextBlockId()}`);
+
+    // Branch condicional no final do bloco atual
+    conditionBlock.condBrInst(conditionBool, trueBlock.label, falseBlock.label);
+
+    // Gerar o bloco verdadeiro (primary)
+    main.setCurrentBasicBlock(trueBlock);
+    const trueValue = this.generateNode(node.primary, main);
+    const trueFinalBlock = main.getCurrentBasicBlock(); // Capturar o bloco atual após geração
+    trueFinalBlock.brInst(endBlock.label);
+
+    // Gerar o bloco falso (secondary)
+    main.setCurrentBasicBlock(falseBlock);
+    const falseValue = this.generateNode(node.secondary, main);
+    const falseFinalBlock = main.getCurrentBasicBlock(); // Capturar o bloco atual após geração
+    falseFinalBlock.brInst(endBlock.label);
+
+    // Gerar o bloco de convergência com phi
+    main.setCurrentBasicBlock(endBlock);
+
+    // Determinar o tipo de retorno (deve ser o tipo do ternário)
+    const resultType = node.llvmType;
+
+    // Converter os valores para o tipo correto se necessário
+    let finalTrueValue = trueValue;
+    let finalFalseValue = falseValue;
+
+    // Se os tipos são diferentes do tipo esperado, fazer conversão
+    if (trueValue.type !== resultType && resultType) {
+      finalTrueValue = { value: trueValue.value, type: resultType };
+    }
+
+    if (falseValue.type !== resultType && resultType) {
+      finalFalseValue = { value: falseValue.value, type: resultType };
+    }
+
+    // Usar o tipo dos valores se não tiver tipo específico definido
+    const finalType = resultType || trueValue.type;
+
+    // Criar a instrução phi para selecionar o valor correto
+    const phiResult = endBlock.nextTemp();
+    endBlock.add(
+      `${phiResult} = phi ${finalType} [ ${finalTrueValue.value}, %${trueFinalBlock.label} ], [ ${finalFalseValue.value}, %${falseFinalBlock.label} ]`,
+    );
+
+    return { value: phiResult, type: finalType };
+  }
+
+  private generateIncrementExpr(
+    node: IncrementExpr,
+    entry: LLVMBasicBlock,
+    _main: LLVMFunction,
+  ): IRValue {
+    const variablePtr = this.variables.get(node.value.value);
+
+    if (!variablePtr) {
+      throw new Error(`Variable ${node.value.value} not found`);
+    }
+
+    const currentValue = entry.loadInst(variablePtr);
+    const incrementedValue = entry.addInst(
+      currentValue,
+      this.makeIrValue("1", currentValue.type),
+    );
+
+    entry.storeInst(incrementedValue, variablePtr);
+    return incrementedValue;
+  }
+
+  private generateDecrementExpr(
+    node: DecrementExpr,
+    entry: LLVMBasicBlock,
+    _main: LLVMFunction,
+  ): IRValue {
+    const variablePtr = this.variables.get(node.value.value);
+
+    if (!variablePtr) {
+      throw new Error(`Variable ${node.value.value} not found`);
+    }
+
+    const currentValue = entry.loadInst(variablePtr);
+    const incrementedValue = entry.addInst(
+      currentValue,
+      this.makeIrValue("1", currentValue.type),
+    );
+
+    entry.storeInst(incrementedValue, variablePtr);
+    return incrementedValue;
   }
 
   private generateIndexAccess(
@@ -275,6 +405,14 @@ export class LLVMIRGenerator {
     entry: LLVMBasicBlock,
     _main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
+    console.log(this.lastStructPtr);
+
     return entry.getStructField(
       this.lastStructPtr,
       node.index!,
@@ -287,6 +425,12 @@ export class LLVMIRGenerator {
     entry: LLVMBasicBlock,
     main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
     const value = this.generateNode(node.to.value, main);
     entry.setStructField(
       this.lastStructPtr,
@@ -302,6 +446,12 @@ export class LLVMIRGenerator {
     entry: LLVMBasicBlock,
     _main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
     this.lastStructPtr = entry.allocaStructInst(node.llvmType!);
     return this.lastStructPtr;
   }
@@ -311,6 +461,12 @@ export class LLVMIRGenerator {
     entry: LLVMBasicBlock,
     _main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
     const types: string[] = [];
 
     for (const propertie of node.body) {
@@ -326,6 +482,12 @@ export class LLVMIRGenerator {
     entry: LLVMBasicBlock,
     main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
     const value = this.generateNode(node.expr, main);
     return entry.convertValueToType(value, node.llvmType!);
   }
@@ -335,6 +497,12 @@ export class LLVMIRGenerator {
     entry: LLVMBasicBlock,
     main: LLVMFunction,
   ): IRValue {
+    if (this.debug) {
+      entry.add(
+        `; DEBUG - LINE: ${node.loc.line} | RAW: ${node.loc.line_string}`,
+      );
+    }
+
     const values: string[] = [];
 
     for (const value of node.value) {

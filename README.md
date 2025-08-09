@@ -53,11 +53,12 @@ Ensure that all tools are available in your system `PATH`.
    ```
 3. **Build the compiler**:
    ```bash
+   chmod +x ./build
    ./build install
    ```
 4. **Compile a Farpy program**:
    ```bash
-   farpy examples/hello.fp --opt --o hello
+   farpy examples/hello.fp -o hello
    ```
 5. **Run the generated executable**:
    ```bash
@@ -65,7 +66,7 @@ Ensure that all tools are available in your system `PATH`.
    ```
 6. **See how to use compiler flags**
    ```bash
-   farpy --h
+   farpy -h
    ```
 
 ## Contributing

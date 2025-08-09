@@ -807,6 +807,10 @@ export class LLVMBasicBlock {
     const structType = structPtr.type.slice(0, -1); // Remove the '*'
     const tmp = this.nextTemp();
 
+    console.log(
+      `${tmp} = getelementptr inbounds ${structType}, ${structPtr.type} ${structPtr.value}, i32 0, i32 ${fieldIndex}`,
+    );
+
     this.add(
       `${tmp} = getelementptr inbounds ${structType}, ${structPtr.type} ${structPtr.value}, i32 0, i32 ${fieldIndex}`,
     );

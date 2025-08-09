@@ -3,6 +3,8 @@
   "C_Cpp.errorSquiggles": "disabled",
   "files.associations": {
     "*.embeddedhtml": "html",
-    "iostream": "cpp"
+    "iostream": "cpp",
+    "math.h": "c",
+    "complex.h": "c"
   }
 }

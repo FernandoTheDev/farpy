@@ -44,6 +44,7 @@ export class Lexer {
     ["#", TokenType.C_DIRECTIVE],
     ["!", TokenType.BANG],
     ["&", TokenType.AMPERSAND],
+    ["?", TokenType.QUESTION],
   ]);
 
   private static readonly MULTI_CHAR_TOKENS = new Map<string, TokenType>([

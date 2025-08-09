@@ -139,7 +139,8 @@ export type NodeType =
   | "DereferenceExpr"
   | "CastExpr"
   | "PointerAssignment"
-  | "IndexAccess";
+  | "IndexAccess"
+  | "TernaryExpr";
 
 export interface Stmt {
   kind: NodeType;
@@ -356,6 +357,13 @@ export interface FunctionDeclaration extends Stmt {
 export interface ReturnStatement extends Stmt {
   kind: "ReturnStatement";
   expr: Expr;
+}
+
+export interface TernaryExpr extends Expr {
+  kind: "TernaryExpr"; // true ? 10 : 3.1416 (the type is int)
+  condition: Expr;
+  primary: Expr;
+  secondary: Expr;
 }
 
 export interface IfStatement extends Stmt {

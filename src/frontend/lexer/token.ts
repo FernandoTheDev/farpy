@@ -80,6 +80,7 @@ export enum TokenType {
   FROM, // from 61
   HEXADECIMAL, // 0x111 62
   OCTAL, // 0o777 63
+  QUESTION, // ? 64
 }
 
 export type NativeValue =
